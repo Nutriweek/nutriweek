@@ -1,0 +1,98 @@
+@import "tailwindcss";
+
+:root {
+  --background: #050505;
+  --foreground: #fafafa;
+  --accent-green: #34d399;
+  --accent-cyan: #22d3ee;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-geist-sans), system-ui, -apple-system, BlinkMacSystemFont,
+    "Segoe UI", sans-serif;
+}
+
+/* Animated gradient background */
+.gradient-bg {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(
+      ellipse 80% 60% at 50% -10%,
+      rgba(16, 185, 129, 0.18),
+      transparent 60%
+    ),
+    radial-gradient(
+      ellipse 60% 50% at 80% 50%,
+      rgba(6, 182, 212, 0.12),
+      transparent 55%
+    ),
+    radial-gradient(
+      ellipse 50% 40% at 20% 80%,
+      rgba(16, 185, 129, 0.08),
+      transparent 50%
+    ),
+    #050505;
+  animation: gradient-shift 12s ease-in-out infinite alternate;
+}
+
+@keyframes gradient-shift {
+  0% {
+    filter: hue-rotate(0deg) brightness(1);
+  }
+  100% {
+    filter: hue-rotate(15deg) brightness(1.05);
+  }
+}
+
+/* Floating orbs */
+.gradient-orb {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(80px);
+  pointer-events: none;
+  animation: orb-float 18s ease-in-out infinite;
+}
+
+.gradient-orb--green {
+  top: 10%;
+  left: 15%;
+  width: 420px;
+  height: 420px;
+  background: rgba(16, 185, 129, 0.15);
+  animation-delay: 0s;
+}
+
+.gradient-orb--cyan {
+  bottom: 15%;
+  right: 10%;
+  width: 380px;
+  height: 380px;
+  background: rgba(6, 182, 212, 0.12);
+  animation-delay: -6s;
+}
+
+@keyframes orb-float {
+  0%,
+  100% {
+    transform: translate(0, 0) scale(1);
+  }
+  33% {
+    transform: translate(30px, -20px) scale(1.05);
+  }
+  66% {
+    transform: translate(-20px, 15px) scale(0.95);
+  }
+}
