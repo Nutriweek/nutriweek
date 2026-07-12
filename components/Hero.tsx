@@ -56,20 +56,20 @@ export default function Hero() {
             className="mt-10 flex w-full flex-col items-center justify-center gap-3 sm:mt-12 sm:flex-row sm:gap-4 lg:items-start lg:justify-start"
           >
             <a
-              href="#get-started"
+              href="/signup"
               className="flex h-12 w-full items-center justify-center rounded-full bg-gradient-to-r from-emerald-500 to-cyan-500 px-8 text-sm font-semibold text-white shadow-xl shadow-emerald-500/25 transition-all duration-200 hover:shadow-emerald-500/40 hover:brightness-110 sm:w-auto sm:px-10 sm:text-base"
             >
               Get Started
             </a>
-            <a
-              href="#demo"
+            <span
+              aria-disabled="true"
               className="group flex h-12 w-full items-center justify-center gap-2 rounded-full border border-white/[0.1] bg-white/[0.04] px-8 text-sm font-semibold text-white backdrop-blur-xl transition-all duration-200 hover:border-white/[0.2] hover:bg-white/[0.08] sm:w-auto sm:px-10 sm:text-base"
             >
               <span className="flex h-7 w-7 items-center justify-center rounded-full bg-white/[0.08] transition-colors duration-200 group-hover:bg-white/[0.14]">
                 <Play className="h-3 w-3 fill-white text-white" />
               </span>
-              Watch Demo
-            </a>
+              Watch Demo (Coming Soon)
+            </span>
           </motion.div>
         </div>
 

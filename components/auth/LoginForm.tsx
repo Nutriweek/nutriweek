@@ -3,12 +3,30 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Eye, EyeOff, LoaderCircle } from "lucide-react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { useForm } from "react-hook-form";
 
 import { login, loginSchema, type LoginInput } from "@/lib/auth";
 
-export default function LoginForm() {
+type LoginFormProps = {
+  nextPath?: string;
+};
+
+function getSafeRedirectPath(nextPath?: string) {
+  if (
+    nextPath?.startsWith("/") &&
+    !nextPath.startsWith("//") &&
+    !nextPath.includes("\\")
+  ) {
+    return nextPath;
+  }
+
+  return "/dashboard";
+}
+
+export default function LoginForm({ nextPath }: LoginFormProps) {
+  const router = useRouter();
   const [showPassword, setShowPassword] = useState(false);
   const [submitMessage, setSubmitMessage] = useState<{
     type: "error" | "success";
@@ -26,6 +44,13 @@ export default function LoginForm() {
   async function onSubmit(values: LoginInput) {
     setSubmitMessage(null);
     const result = await login(values);
+
+    if (result.success) {
+      router.replace(getSafeRedirectPath(nextPath));
+      router.refresh();
+      return;
+    }
+
     setSubmitMessage({ type: result.success ? "success" : "error", text: result.message });
   }
 

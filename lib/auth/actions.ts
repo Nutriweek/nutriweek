@@ -63,3 +63,15 @@ export async function signup(input: SignupInput): Promise<AuthActionResult> {
     return { success: false, message: AUTH_MESSAGES.unexpectedError };
   }
 }
+
+export async function signOut(): Promise<AuthActionResult> {
+  try {
+    const { error } = await createClient().auth.signOut();
+
+    return error
+      ? { success: false, message: AUTH_MESSAGES.logoutError }
+      : { success: true, message: AUTH_MESSAGES.logoutSuccess };
+  } catch {
+    return { success: false, message: AUTH_MESSAGES.logoutError };
+  }
+}

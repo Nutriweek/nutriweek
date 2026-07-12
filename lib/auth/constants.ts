@@ -6,6 +6,8 @@ export const AUTH_MESSAGES = {
   invalidCredentials: "Invalid email or password.",
   emailNotConfirmed: "Please confirm your email address before signing in.",
   accountExists: "An account with this email address already exists.",
+  logoutSuccess: "You have been signed out successfully.",
+  logoutError: "We couldn't sign you out. Please try again.",
   unexpectedError: "Something went wrong. Please try again.",
 } as const;
 
