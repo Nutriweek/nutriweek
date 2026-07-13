@@ -14,16 +14,153 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      household_members: {
+        Row: {
+          created_at: string
+          household_id: string
+          role: Database["public"]["Enums"]["household_member_role"]
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          household_id: string
+          role?: Database["public"]["Enums"]["household_member_role"]
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          household_id?: string
+          role?: Database["public"]["Enums"]["household_member_role"]
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "household_members_household_id_fkey"
+            columns: ["household_id"]
+            isOneToOne: false
+            referencedRelation: "households"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      households: {
+        Row: {
+          created_at: string
+          created_by: string
+          id: string
+          name: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          created_by: string
+          id?: string
+          name: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string
+          id?: string
+          name?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      profiles: {
+        Row: {
+          activity_level: Database["public"]["Enums"]["activity_level"] | null
+          allergies: string[]
+          city: string | null
+          country: string | null
+          created_at: string
+          cuisine_preferences: string[]
+          currency_code: string | null
+          date_of_birth: string | null
+          diet_type: string | null
+          family_size: number | null
+          full_name: string | null
+          gender: Database["public"]["Enums"]["gender"] | null
+          health_goal: Database["public"]["Enums"]["health_goal"] | null
+          height_cm: number | null
+          id: string
+          kitchen_equipment: string[]
+          meals_per_day: number | null
+          state_province: string | null
+          updated_at: string
+          weekly_grocery_budget: number | null
+          weight_kg: number | null
+        }
+        Insert: {
+          activity_level?: Database["public"]["Enums"]["activity_level"] | null
+          allergies?: string[]
+          city?: string | null
+          country?: string | null
+          created_at?: string
+          cuisine_preferences?: string[]
+          currency_code?: string | null
+          date_of_birth?: string | null
+          diet_type?: string | null
+          family_size?: number | null
+          full_name?: string | null
+          gender?: Database["public"]["Enums"]["gender"] | null
+          health_goal?: Database["public"]["Enums"]["health_goal"] | null
+          height_cm?: number | null
+          id: string
+          kitchen_equipment?: string[]
+          meals_per_day?: number | null
+          state_province?: string | null
+          updated_at?: string
+          weekly_grocery_budget?: number | null
+          weight_kg?: number | null
+        }
+        Update: {
+          activity_level?: Database["public"]["Enums"]["activity_level"] | null
+          allergies?: string[]
+          city?: string | null
+          country?: string | null
+          created_at?: string
+          cuisine_preferences?: string[]
+          currency_code?: string | null
+          date_of_birth?: string | null
+          diet_type?: string | null
+          family_size?: number | null
+          full_name?: string | null
+          gender?: Database["public"]["Enums"]["gender"] | null
+          health_goal?: Database["public"]["Enums"]["health_goal"] | null
+          height_cm?: number | null
+          id?: string
+          kitchen_equipment?: string[]
+          meals_per_day?: number | null
+          state_province?: string | null
+          updated_at?: string
+          weekly_grocery_budget?: number | null
+          weight_kg?: number | null
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      create_initial_profile_and_household: {
+        Args: { p_user_full_name?: string; p_user_id: string }
+        Returns: undefined
+      }
     }
     Enums: {
-      [_ in never]: never
+      activity_level:
+        | "sedentary"
+        | "lightly_active"
+        | "moderately_active"
+        | "very_active"
+      gender: "female" | "male" | "non_binary" | "other" | "prefer_not_to_say"
+      health_goal: "lose_weight" | "maintain_weight" | "gain_muscle"
+      household_member_role: "owner" | "member"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -150,6 +287,16 @@ export type CompositeTypes<
 
 export const Constants = {
   public: {
-    Enums: {},
+    Enums: {
+      activity_level: [
+        "sedentary",
+        "lightly_active",
+        "moderately_active",
+        "very_active",
+      ],
+      gender: ["female", "male", "non_binary", "other", "prefer_not_to_say"],
+      health_goal: ["lose_weight", "maintain_weight", "gain_muscle"],
+      household_member_role: ["owner", "member"],
+    },
   },
 } as const
