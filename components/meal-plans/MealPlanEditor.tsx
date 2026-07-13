@@ -9,10 +9,11 @@ import { Controller, useForm, useWatch } from "react-hook-form";
 
 import ProfileField from "@/components/profile/ProfileField";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { addMealPlanItem, createWeeklyMealPlan } from "@/lib/meal-plans/actions";
+import { addMealPlanItem } from "@/lib/meal-plans/actions";
 import { formatWeekRange, getWeekEnd, shiftWeek } from "@/lib/meal-plans/constants";
 import { addMealPlanItemSchema, type AddMealPlanItemInput } from "@/lib/meal-plans/schemas";
 import type { MealCategory, MealSlotType, PlannedMealItem, Recipe, WeeklyMealPlan } from "@/lib/meal-plans/types";
+import { approveWeeklyPlan, prepareWeeklyPlan } from "@/lib/planning/actions";
 
 type MealPlanEditorProps = {
   weekStartDate: string;
@@ -29,6 +30,7 @@ export default function MealPlanEditor({ weekStartDate, plan, items, mealCategor
   const router = useRouter();
   const [createMessage, setCreateMessage] = useState<{ type: "error" | "success"; text: string } | null>(null);
   const [isCreating, setIsCreating] = useState(false);
+  const [isApproving, setIsApproving] = useState(false);
   const [itemMessage, setItemMessage] = useState<{ type: "error" | "success"; text: string } | null>(null);
   const { register, control, handleSubmit, reset, formState: { errors, isSubmitting } } = useForm<AddMealPlanItemInput>({
     resolver: zodResolver(addMealPlanItemSchema),
@@ -41,8 +43,18 @@ export default function MealPlanEditor({ weekStartDate, plan, items, mealCategor
   async function handleCreatePlan() {
     setCreateMessage(null);
     setIsCreating(true);
-    const result = await createWeeklyMealPlan({ week_start_date: weekStartDate });
+    const result = await prepareWeeklyPlan({ week_start_date: weekStartDate });
     setIsCreating(false);
+    setCreateMessage({ type: result.success ? "success" : "error", text: result.message });
+    if (result.success) router.refresh();
+  }
+
+  async function handleApprovePlan() {
+    if (!plan) return;
+    setCreateMessage(null);
+    setIsApproving(true);
+    const result = await approveWeeklyPlan({ meal_plan_id: plan.id });
+    setIsApproving(false);
     setCreateMessage({ type: result.success ? "success" : "error", text: result.message });
     if (result.success) router.refresh();
   }
@@ -62,7 +74,8 @@ export default function MealPlanEditor({ weekStartDate, plan, items, mealCategor
       <div><p className="text-sm font-medium uppercase tracking-widest text-emerald-400/80">Weekly meal plan</p><h1 className="mt-2 text-2xl font-semibold tracking-tight text-white sm:text-3xl">{formatWeekRange(weekStartDate)}</h1><p className="mt-2 text-sm text-zinc-400">Plan meals now; grocery generation will use this same weekly structure later.</p></div>
       <div className="flex items-center gap-2"><Link href={`/dashboard/meal-plans?week=${shiftWeek(weekStartDate, -1)}`} className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-white/10 bg-white/5 text-zinc-300 transition hover:border-emerald-400/50 hover:text-white" aria-label="Previous week"><ChevronLeft className="h-5 w-5" aria-hidden="true" /></Link><Link href={`/dashboard/meal-plans?week=${shiftWeek(weekStartDate, 1)}`} className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-white/10 bg-white/5 text-zinc-300 transition hover:border-emerald-400/50 hover:text-white" aria-label="Next week"><ChevronRight className="h-5 w-5" aria-hidden="true" /></Link></div>
     </div>
-    {!plan ? <section className="rounded-3xl border border-dashed border-white/15 bg-white/[0.03] p-8 text-center sm:p-10"><CalendarPlus className="mx-auto h-10 w-10 text-emerald-400" aria-hidden="true" /><h2 className="mt-4 text-xl font-semibold text-white">Start this week&apos;s plan</h2><p className="mx-auto mt-2 max-w-lg text-sm leading-relaxed text-zinc-400">Create a draft for this household, then add recipe, outside food, leftovers, office meal, or no-cooking slots.</p><button type="button" onClick={handleCreatePlan} disabled={isCreating} className="mt-6 inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-emerald-500 to-cyan-500 px-5 py-3 font-semibold text-white transition hover:scale-[1.02] disabled:cursor-not-allowed disabled:opacity-70 disabled:hover:scale-100">{isCreating ? <LoaderCircle className="h-5 w-5 animate-spin" aria-hidden="true" /> : <CalendarPlus className="h-5 w-5" aria-hidden="true" />}{isCreating ? "Creating plan..." : "Create weekly plan"}</button>{createMessage ? <p className={`mt-4 text-sm ${createMessage.type === "success" ? "text-emerald-400" : "text-rose-400"}`} role={createMessage.type === "error" ? "alert" : "status"}>{createMessage.text}</p> : null}</section> : <>
+    {!plan ? <section className="rounded-3xl border border-dashed border-white/15 bg-white/[0.03] p-8 text-center sm:p-10"><CalendarPlus className="mx-auto h-10 w-10 text-emerald-400" aria-hidden="true" /><h2 className="mt-4 text-xl font-semibold text-white">Prepare next week&apos;s meals</h2><p className="mx-auto mt-2 max-w-lg text-sm leading-relaxed text-zinc-400">Nutriweek will prepare a complete draft from recipes that match your saved constraints.</p><button type="button" onClick={handleCreatePlan} disabled={isCreating} className="mt-6 inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-emerald-500 to-cyan-500 px-5 py-3 font-semibold text-white transition hover:scale-[1.02] disabled:cursor-not-allowed disabled:opacity-70 disabled:hover:scale-100">{isCreating ? <LoaderCircle className="h-5 w-5 animate-spin" aria-hidden="true" /> : <CalendarPlus className="h-5 w-5" aria-hidden="true" />}{isCreating ? "Preparing meals..." : "Prepare weekly meals"}</button>{createMessage ? <p className={`mt-4 text-sm ${createMessage.type === "success" ? "text-emerald-400" : "text-rose-400"}`} role={createMessage.type === "error" ? "alert" : "status"}>{createMessage.text}</p> : null}</section> : <>
+      {plan.status === "prepared_for_review" ? <section className="flex flex-col gap-3 rounded-2xl border border-emerald-400/20 bg-emerald-500/10 p-5 sm:flex-row sm:items-center sm:justify-between"><div><h2 className="font-semibold text-emerald-100">Your week is ready for review</h2><p className="mt-1 text-sm text-emerald-100/70">Approve the meals when you&apos;re happy with the week. Nutriweek will then prepare the grocery basket.</p></div><button type="button" onClick={handleApprovePlan} disabled={isApproving} className="inline-flex items-center justify-center gap-2 rounded-xl bg-emerald-400 px-5 py-3 font-semibold text-zinc-950 disabled:cursor-not-allowed disabled:opacity-70">{isApproving ? <LoaderCircle className="h-5 w-5 animate-spin" aria-hidden="true" /> : <CheckCircle2 className="h-5 w-5" aria-hidden="true" />}{isApproving ? "Approving..." : "Approve week"}</button>{createMessage ? <p className={`text-sm ${createMessage.type === "success" ? "text-emerald-200" : "text-rose-300"}`} role={createMessage.type === "error" ? "alert" : "status"}>{createMessage.text}</p> : null}</section> : null}
       <section className="rounded-3xl border border-white/[0.08] bg-white/[0.04] p-5 sm:p-7"><div className="mb-6 flex items-center gap-3"><div className="rounded-xl bg-emerald-500/10 p-2 text-emerald-300"><Plus className="h-5 w-5" aria-hidden="true" /></div><div><h2 className="text-lg font-semibold text-white">Add a meal slot</h2><p className="text-sm text-zinc-400">Build a flexible plan around your real week.</p></div></div><form className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3" noValidate onSubmit={handleSubmit(onSubmit)}>
         <ProfileField label="Date" htmlFor="meal_date" error={errors.meal_date?.message}><input {...register("meal_date")} id="meal_date" type="date" min={weekStartDate} max={getWeekEnd(weekStartDate)} className={inputClassName} /></ProfileField>
         <ProfileField label="Meal category" htmlFor="meal_category_id" error={errors.meal_category_id?.message}><Controller name="meal_category_id" control={control} render={({ field }) => <Select value={field.value || undefined} onValueChange={field.onChange}><SelectTrigger id="meal_category_id"><SelectValue placeholder="Select a category" /></SelectTrigger><SelectContent>{mealCategories.map((category) => <SelectItem key={category.id} value={category.id}>{category.name}</SelectItem>)}</SelectContent></Select>} /></ProfileField>
