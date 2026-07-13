@@ -23,7 +23,7 @@ const navigationItems: NavigationItem[] = [
   { label: "Grocery List (Coming Soon)", icon: ShoppingCart, href: "/dashboard/grocery" },
   { label: "Recipes (Coming Soon)", icon: ChefHat },
   { label: "Nutrition (Coming Soon)", icon: BarChart3, href: "/dashboard/nutrition" },
-  { label: "Profile (Coming Soon)", icon: UserRound, href: "/dashboard/profile" },
+  { label: "Profile", icon: UserRound, href: "/dashboard/profile" },
 ];
 
 function NavigationItems({ mobile = false }: { mobile?: boolean }) {
