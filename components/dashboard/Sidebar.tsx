@@ -18,10 +18,10 @@ type NavigationItem = {
 
 const navigationItems: NavigationItem[] = [
   { label: "Dashboard", icon: LayoutDashboard, href: "/dashboard" },
-  { label: "Meal Plans (Coming Soon)", icon: CalendarDays, href: "/dashboard/meal-plans" },
+  { label: "Meal Plans", icon: CalendarDays, href: "/dashboard/meal-plans" },
   { label: "Pantry (Coming Soon)", icon: Package, href: "/dashboard/pantry" },
-  { label: "Grocery List (Coming Soon)", icon: ShoppingCart, href: "/dashboard/grocery" },
-  { label: "Recipes (Coming Soon)", icon: ChefHat },
+  { label: "Grocery List", icon: ShoppingCart, href: "/dashboard/grocery" },
+  { label: "Recipes", icon: ChefHat, href: "/dashboard/recipes" },
   { label: "Nutrition (Coming Soon)", icon: BarChart3, href: "/dashboard/nutrition" },
   { label: "Profile", icon: UserRound, href: "/dashboard/profile" },
 ];

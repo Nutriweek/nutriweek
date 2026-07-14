@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 
 import { createClient } from "@/lib/supabase/server";
 
-import { getWeekEnd } from "./constants";
+import { getUpcomingWeekStart, getWeekEnd } from "./constants";
 import { addMealPlanItemSchema, createWeeklyMealPlanSchema, type AddMealPlanItemInput, type CreateWeeklyMealPlanInput } from "./schemas";
 import type { MealPlanActionResult, WeeklyMealPlanItemInsert } from "./types";
 
@@ -38,6 +38,9 @@ export async function createWeeklyMealPlan(values: CreateWeeklyMealPlanInput): P
 
   if (!parsedValues.success) {
     return { success: false, message: "Choose a valid week before creating a plan." };
+  }
+  if (parsedValues.data.week_start_date !== getUpcomingWeekStart()) {
+    return { success: false, message: "You can only create the upcoming Monday–Saturday plan." };
   }
 
   const { supabase, householdId } = await getCurrentHouseholdId();

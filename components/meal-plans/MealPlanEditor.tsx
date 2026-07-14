@@ -10,7 +10,7 @@ import { Controller, useForm, useWatch } from "react-hook-form";
 import ProfileField from "@/components/profile/ProfileField";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { addMealPlanItem } from "@/lib/meal-plans/actions";
-import { formatWeekRange, getWeekEnd, shiftWeek } from "@/lib/meal-plans/constants";
+import { formatWeekRange, getUpcomingWeekStart, getWeekEnd, shiftWeek } from "@/lib/meal-plans/constants";
 import { addMealPlanItemSchema, type AddMealPlanItemInput } from "@/lib/meal-plans/schemas";
 import type { MealCategory, MealSlotType, PlannedMealItem, Recipe, WeeklyMealPlan } from "@/lib/meal-plans/types";
 import { approveWeeklyPlan, prepareWeeklyPlan } from "@/lib/planning/actions";
@@ -39,6 +39,7 @@ export default function MealPlanEditor({ weekStartDate, plan, items, mealCategor
   const selectedSlotTypeId = useWatch({ control, name: "meal_slot_type_id" });
   const selectedSlotType = mealSlotTypes.find((slotType) => slotType.id === selectedSlotTypeId);
   const groupedItems = useMemo(() => items.reduce<Record<string, PlannedMealItem[]>>((groups, item) => ({ ...groups, [item.meal_date]: [...(groups[item.meal_date] ?? []), item] }), {}), [items]);
+  const canNavigateNext = weekStartDate !== getUpcomingWeekStart();
 
   async function handleCreatePlan() {
     setCreateMessage(null);
@@ -56,7 +57,7 @@ export default function MealPlanEditor({ weekStartDate, plan, items, mealCategor
     const result = await approveWeeklyPlan({ meal_plan_id: plan.id });
     setIsApproving(false);
     setCreateMessage({ type: result.success ? "success" : "error", text: result.message });
-    if (result.success) router.refresh();
+    if (result.success) router.push("/dashboard/grocery");
   }
 
   async function onSubmit(values: AddMealPlanItemInput) {
@@ -71,8 +72,8 @@ export default function MealPlanEditor({ weekStartDate, plan, items, mealCategor
 
   return <div className="space-y-6">
     <div className="flex flex-col gap-4 rounded-3xl border border-white/[0.08] bg-white/[0.04] p-5 backdrop-blur-xl sm:flex-row sm:items-center sm:justify-between sm:p-6">
-      <div><p className="text-sm font-medium uppercase tracking-widest text-emerald-400/80">Weekly meal plan</p><h1 className="mt-2 text-2xl font-semibold tracking-tight text-white sm:text-3xl">{formatWeekRange(weekStartDate)}</h1><p className="mt-2 text-sm text-zinc-400">Plan meals now; grocery generation will use this same weekly structure later.</p></div>
-      <div className="flex items-center gap-2"><Link href={`/dashboard/meal-plans?week=${shiftWeek(weekStartDate, -1)}`} className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-white/10 bg-white/5 text-zinc-300 transition hover:border-emerald-400/50 hover:text-white" aria-label="Previous week"><ChevronLeft className="h-5 w-5" aria-hidden="true" /></Link><Link href={`/dashboard/meal-plans?week=${shiftWeek(weekStartDate, 1)}`} className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-white/10 bg-white/5 text-zinc-300 transition hover:border-emerald-400/50 hover:text-white" aria-label="Next week"><ChevronRight className="h-5 w-5" aria-hidden="true" /></Link></div>
+      <div><p className="text-sm font-medium uppercase tracking-widest text-emerald-400/80">Weekly meal plan</p><h1 className="mt-2 text-2xl font-semibold tracking-tight text-white sm:text-3xl">{formatWeekRange(weekStartDate)}</h1><p className="mt-2 text-sm text-zinc-400">Meals are planned Monday through Saturday. Sunday is reserved for planning and groceries.</p></div>
+      <div className="flex items-center gap-2"><Link href={`/dashboard/meal-plans?week=${shiftWeek(weekStartDate, -1)}`} className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-white/10 bg-white/5 text-zinc-300 transition hover:border-emerald-400/50 hover:text-white" aria-label="Previous week"><ChevronLeft className="h-5 w-5" aria-hidden="true" /></Link>{canNavigateNext ? <Link href={`/dashboard/meal-plans?week=${shiftWeek(weekStartDate, 1)}`} className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-white/10 bg-white/5 text-zinc-300 transition hover:border-emerald-400/50 hover:text-white" aria-label="Next week"><ChevronRight className="h-5 w-5" aria-hidden="true" /></Link> : <button type="button" disabled className="inline-flex h-10 w-10 cursor-not-allowed items-center justify-center rounded-xl border border-white/10 bg-white/5 text-zinc-600" aria-label="Next week unavailable"><ChevronRight className="h-5 w-5" aria-hidden="true" /></button>}</div>
     </div>
     {!plan ? <section className="rounded-3xl border border-dashed border-white/15 bg-white/[0.03] p-8 text-center sm:p-10"><CalendarPlus className="mx-auto h-10 w-10 text-emerald-400" aria-hidden="true" /><h2 className="mt-4 text-xl font-semibold text-white">Prepare next week&apos;s meals</h2><p className="mx-auto mt-2 max-w-lg text-sm leading-relaxed text-zinc-400">Nutriweek will prepare a complete draft from recipes that match your saved constraints.</p><button type="button" onClick={handleCreatePlan} disabled={isCreating} className="mt-6 inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-emerald-500 to-cyan-500 px-5 py-3 font-semibold text-white transition hover:scale-[1.02] disabled:cursor-not-allowed disabled:opacity-70 disabled:hover:scale-100">{isCreating ? <LoaderCircle className="h-5 w-5 animate-spin" aria-hidden="true" /> : <CalendarPlus className="h-5 w-5" aria-hidden="true" />}{isCreating ? "Preparing meals..." : "Prepare weekly meals"}</button>{createMessage ? <p className={`mt-4 text-sm ${createMessage.type === "success" ? "text-emerald-400" : "text-rose-400"}`} role={createMessage.type === "error" ? "alert" : "status"}>{createMessage.text}</p> : null}</section> : <>
       {plan.status === "prepared_for_review" ? <section className="flex flex-col gap-3 rounded-2xl border border-emerald-400/20 bg-emerald-500/10 p-5 sm:flex-row sm:items-center sm:justify-between"><div><h2 className="font-semibold text-emerald-100">Your week is ready for review</h2><p className="mt-1 text-sm text-emerald-100/70">Approve the meals when you&apos;re happy with the week. Nutriweek will then prepare the grocery basket.</p></div><button type="button" onClick={handleApprovePlan} disabled={isApproving} className="inline-flex items-center justify-center gap-2 rounded-xl bg-emerald-400 px-5 py-3 font-semibold text-zinc-950 disabled:cursor-not-allowed disabled:opacity-70">{isApproving ? <LoaderCircle className="h-5 w-5 animate-spin" aria-hidden="true" /> : <CheckCircle2 className="h-5 w-5" aria-hidden="true" />}{isApproving ? "Approving..." : "Approve week"}</button>{createMessage ? <p className={`text-sm ${createMessage.type === "success" ? "text-emerald-200" : "text-rose-300"}`} role={createMessage.type === "error" ? "alert" : "status"}>{createMessage.text}</p> : null}</section> : null}

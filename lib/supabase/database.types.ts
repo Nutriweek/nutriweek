@@ -101,6 +101,36 @@ export type Database = {
         }
         Relationships: []
       }
+      equipment: {
+        Row: {
+          category: string | null
+          created_at: string
+          id: string
+          is_active: boolean
+          name: string
+          slug: string
+          updated_at: string
+        }
+        Insert: {
+          category?: string | null
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          name: string
+          slug: string
+          updated_at?: string
+        }
+        Update: {
+          category?: string | null
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          name?: string
+          slug?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       grocery_list_item_sources: {
         Row: {
           base_unit_code: string
@@ -455,6 +485,47 @@ export type Database = {
         }
         Relationships: []
       }
+      ingredient_aliases: {
+        Row: {
+          created_at: string
+          display_name: string
+          id: string
+          ingredient_id: string
+          is_active: boolean
+          locale: string | null
+          normalized_name: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          display_name: string
+          id?: string
+          ingredient_id: string
+          is_active?: boolean
+          locale?: string | null
+          normalized_name: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          display_name?: string
+          id?: string
+          ingredient_id?: string
+          is_active?: boolean
+          locale?: string | null
+          normalized_name?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ingredient_aliases_ingredient_id_fkey"
+            columns: ["ingredient_id"]
+            isOneToOne: false
+            referencedRelation: "ingredients"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       ingredient_allergens: {
         Row: {
           allergen_code: string
@@ -716,6 +787,51 @@ export type Database = {
           },
         ]
       }
+      meal_plan_item_selection_explanations: {
+        Row: {
+          created_at: string
+          explanation_code: string
+          generation_run_id: string
+          id: string
+          meal_plan_item_id: string
+          message: string
+          metadata: Json
+        }
+        Insert: {
+          created_at?: string
+          explanation_code: string
+          generation_run_id: string
+          id?: string
+          meal_plan_item_id: string
+          message: string
+          metadata?: Json
+        }
+        Update: {
+          created_at?: string
+          explanation_code?: string
+          generation_run_id?: string
+          id?: string
+          meal_plan_item_id?: string
+          message?: string
+          metadata?: Json
+        }
+        Relationships: [
+          {
+            foreignKeyName: "meal_plan_item_selection_explanations_generation_run_id_fkey"
+            columns: ["generation_run_id"]
+            isOneToOne: false
+            referencedRelation: "meal_plan_generation_runs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "meal_plan_item_selection_explanations_meal_plan_item_id_fkey"
+            columns: ["meal_plan_item_id"]
+            isOneToOne: false
+            referencedRelation: "weekly_meal_plan_items"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       meal_slot_types: {
         Row: {
           created_at: string
@@ -745,6 +861,39 @@ export type Database = {
           name?: string
           requires_recipe?: boolean
           slug?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      nutrients: {
+        Row: {
+          category: string
+          code: string
+          created_at: string
+          id: string
+          is_active: boolean
+          name: string
+          unit_code: string
+          updated_at: string
+        }
+        Insert: {
+          category?: string
+          code: string
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          name: string
+          unit_code: string
+          updated_at?: string
+        }
+        Update: {
+          category?: string
+          code?: string
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          name?: string
+          unit_code?: string
           updated_at?: string
         }
         Relationships: []
@@ -1130,6 +1279,48 @@ export type Database = {
           },
         ]
       }
+      recipe_equipment_requirements: {
+        Row: {
+          created_at: string
+          equipment_id: string
+          is_required: boolean
+          note: string | null
+          recipe_id: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          equipment_id: string
+          is_required?: boolean
+          note?: string | null
+          recipe_id: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          equipment_id?: string
+          is_required?: boolean
+          note?: string | null
+          recipe_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "recipe_equipment_requirements_equipment_id_fkey"
+            columns: ["equipment_id"]
+            isOneToOne: false
+            referencedRelation: "equipment"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "recipe_equipment_requirements_recipe_id_fkey"
+            columns: ["recipe_id"]
+            isOneToOne: false
+            referencedRelation: "recipes"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       recipe_household_access: {
         Row: {
           access_level: string
@@ -1229,6 +1420,107 @@ export type Database = {
           },
         ]
       }
+      recipe_meal_categories: {
+        Row: {
+          created_at: string
+          meal_category_id: string
+          recipe_id: string
+        }
+        Insert: {
+          created_at?: string
+          meal_category_id: string
+          recipe_id: string
+        }
+        Update: {
+          created_at?: string
+          meal_category_id?: string
+          recipe_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "recipe_meal_categories_meal_category_id_fkey"
+            columns: ["meal_category_id"]
+            isOneToOne: false
+            referencedRelation: "meal_categories"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "recipe_meal_categories_recipe_id_fkey"
+            columns: ["recipe_id"]
+            isOneToOne: false
+            referencedRelation: "recipes"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      recipe_nutrient_values: {
+        Row: {
+          amount: number
+          created_at: string
+          nutrient_id: string
+          recipe_id: string
+          updated_at: string
+        }
+        Insert: {
+          amount: number
+          created_at?: string
+          nutrient_id: string
+          recipe_id: string
+          updated_at?: string
+        }
+        Update: {
+          amount?: number
+          created_at?: string
+          nutrient_id?: string
+          recipe_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "recipe_nutrient_values_nutrient_id_fkey"
+            columns: ["nutrient_id"]
+            isOneToOne: false
+            referencedRelation: "nutrients"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "recipe_nutrient_values_recipe_id_fkey"
+            columns: ["recipe_id"]
+            isOneToOne: false
+            referencedRelation: "recipes"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      recipe_quality_scores: {
+        Row: {
+          calculated_at: string
+          components: Json
+          recipe_id: string
+          score: number
+        }
+        Insert: {
+          calculated_at?: string
+          components?: Json
+          recipe_id: string
+          score: number
+        }
+        Update: {
+          calculated_at?: string
+          components?: Json
+          recipe_id?: string
+          score?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "recipe_quality_scores_recipe_id_fkey"
+            columns: ["recipe_id"]
+            isOneToOne: true
+            referencedRelation: "recipes"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       recipe_required_equipment: {
         Row: {
           created_at: string
@@ -1251,6 +1543,109 @@ export type Database = {
         Relationships: [
           {
             foreignKeyName: "recipe_required_equipment_recipe_id_fkey"
+            columns: ["recipe_id"]
+            isOneToOne: false
+            referencedRelation: "recipes"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      recipe_sources: {
+        Row: {
+          created_at: string
+          id: string
+          is_active: boolean
+          name: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          id: string
+          is_active?: boolean
+          name: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          name?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      recipe_step_media: {
+        Row: {
+          alt_text: string | null
+          created_at: string
+          display_order: number
+          id: string
+          media_type: string
+          recipe_step_id: string
+          storage_path: string
+        }
+        Insert: {
+          alt_text?: string | null
+          created_at?: string
+          display_order?: number
+          id?: string
+          media_type: string
+          recipe_step_id: string
+          storage_path: string
+        }
+        Update: {
+          alt_text?: string | null
+          created_at?: string
+          display_order?: number
+          id?: string
+          media_type?: string
+          recipe_step_id?: string
+          storage_path?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "recipe_step_media_recipe_step_id_fkey"
+            columns: ["recipe_step_id"]
+            isOneToOne: false
+            referencedRelation: "recipe_steps"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      recipe_steps: {
+        Row: {
+          created_at: string
+          estimated_duration_minutes: number | null
+          id: string
+          instruction: string
+          recipe_id: string
+          step_number: number
+          tip: string | null
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          estimated_duration_minutes?: number | null
+          id?: string
+          instruction: string
+          recipe_id: string
+          step_number: number
+          tip?: string | null
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          estimated_duration_minutes?: number | null
+          id?: string
+          instruction?: string
+          recipe_id?: string
+          step_number?: number
+          tip?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "recipe_steps_recipe_id_fkey"
             columns: ["recipe_id"]
             isOneToOne: false
             referencedRelation: "recipes"
@@ -1296,6 +1691,7 @@ export type Database = {
       }
       recipe_tags: {
         Row: {
+          category: string
           created_at: string
           id: string
           is_active: boolean
@@ -1304,6 +1700,7 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          category?: string
           created_at?: string
           id?: string
           is_active?: boolean
@@ -1312,6 +1709,7 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          category?: string
           created_at?: string
           id?: string
           is_active?: boolean
@@ -1326,25 +1724,38 @@ export type Database = {
           calories_kcal: number | null
           carbohydrates_g: number | null
           cook_time_minutes: number | null
+          cover_image_path: string | null
           created_at: string
           created_by: string | null
           description: string | null
           difficulty: string | null
+          estimated_cost: number | null
+          estimated_cost_calculated_at: string | null
+          estimated_cost_currency: string | null
           fat_g: number | null
           fiber_g: number | null
           id: string
           instructions: string | null
           is_active: boolean
           name: string
+          nutrition_source: string | null
+          nutrition_status: string
+          nutrition_updated_at: string | null
           prep_time_minutes: number | null
           primary_cuisine_id: string | null
           primary_cuisine_region_id: string | null
           protein_g: number | null
+          publication_status: string
           published_at: string | null
+          quality_status: string
           servings: number | null
+          slug: string | null
           sodium_mg: number | null
+          source_id: string | null
+          source_metadata: Json
           source_type: Database["public"]["Enums"]["recipe_source_type"]
           sugar_g: number | null
+          total_time_minutes: number | null
           updated_at: string
           visibility: Database["public"]["Enums"]["recipe_visibility"]
         }
@@ -1352,25 +1763,38 @@ export type Database = {
           calories_kcal?: number | null
           carbohydrates_g?: number | null
           cook_time_minutes?: number | null
+          cover_image_path?: string | null
           created_at?: string
           created_by?: string | null
           description?: string | null
           difficulty?: string | null
+          estimated_cost?: number | null
+          estimated_cost_calculated_at?: string | null
+          estimated_cost_currency?: string | null
           fat_g?: number | null
           fiber_g?: number | null
           id?: string
           instructions?: string | null
           is_active?: boolean
           name: string
+          nutrition_source?: string | null
+          nutrition_status?: string
+          nutrition_updated_at?: string | null
           prep_time_minutes?: number | null
           primary_cuisine_id?: string | null
           primary_cuisine_region_id?: string | null
           protein_g?: number | null
+          publication_status?: string
           published_at?: string | null
+          quality_status?: string
           servings?: number | null
+          slug?: string | null
           sodium_mg?: number | null
+          source_id?: string | null
+          source_metadata?: Json
           source_type?: Database["public"]["Enums"]["recipe_source_type"]
           sugar_g?: number | null
+          total_time_minutes?: number | null
           updated_at?: string
           visibility?: Database["public"]["Enums"]["recipe_visibility"]
         }
@@ -1378,25 +1802,38 @@ export type Database = {
           calories_kcal?: number | null
           carbohydrates_g?: number | null
           cook_time_minutes?: number | null
+          cover_image_path?: string | null
           created_at?: string
           created_by?: string | null
           description?: string | null
           difficulty?: string | null
+          estimated_cost?: number | null
+          estimated_cost_calculated_at?: string | null
+          estimated_cost_currency?: string | null
           fat_g?: number | null
           fiber_g?: number | null
           id?: string
           instructions?: string | null
           is_active?: boolean
           name?: string
+          nutrition_source?: string | null
+          nutrition_status?: string
+          nutrition_updated_at?: string | null
           prep_time_minutes?: number | null
           primary_cuisine_id?: string | null
           primary_cuisine_region_id?: string | null
           protein_g?: number | null
+          publication_status?: string
           published_at?: string | null
+          quality_status?: string
           servings?: number | null
+          slug?: string | null
           sodium_mg?: number | null
+          source_id?: string | null
+          source_metadata?: Json
           source_type?: Database["public"]["Enums"]["recipe_source_type"]
           sugar_g?: number | null
+          total_time_minutes?: number | null
           updated_at?: string
           visibility?: Database["public"]["Enums"]["recipe_visibility"]
         }
@@ -1414,6 +1851,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "cuisine_regions"
             referencedColumns: ["id", "cuisine_id"]
+          },
+          {
+            foreignKeyName: "recipes_source_id_fkey"
+            columns: ["source_id"]
+            isOneToOne: false
+            referencedRelation: "recipe_sources"
+            referencedColumns: ["id"]
           },
         ]
       }
@@ -1565,6 +2009,14 @@ export type Database = {
         Returns: boolean
       }
       is_recipe_author: { Args: { target_recipe_id: string }; Returns: boolean }
+      recalculate_recipe_estimated_cost: {
+        Args: { target_recipe_id: string }
+        Returns: undefined
+      }
+      recalculate_recipe_quality: {
+        Args: { target_recipe_id: string }
+        Returns: undefined
+      }
     }
     Enums: {
       activity_level:
