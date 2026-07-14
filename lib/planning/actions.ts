@@ -43,16 +43,18 @@ export async function prepareWeeklyPlan(values: PrepareWeeklyPlanInput): Promise
   const { supabase, user, householdId } = await getPlanningContext();
   if (!user || !householdId) return { success: false, message: "Your household is not available yet." };
 
-  const [{ data: profile }, { data: recipes }, { data: categories }, { data: slotTypes }, { data: preferences }] = await Promise.all([
+  const [{ data: profile }, { data: systemRecipes }, { data: privateRecipes }, { data: categories }, { data: slotTypes }, { data: preferences }] = await Promise.all([
     supabase.from("profiles").select("diet_type, allergies, kitchen_equipment, weekly_grocery_budget, currency_code").eq("id", user.id).maybeSingle(),
-    supabase.from("recipes").select("id, name, servings, calories_kcal, prep_time_minutes, cook_time_minutes").eq("is_active", true).order("name").limit(100),
+    supabase.from("recipes").select("id, name, servings, calories_kcal, prep_time_minutes, cook_time_minutes, source_type").eq("source_type", "system").eq("visibility", "system").eq("publication_status", "published").eq("is_active", true).order("name").limit(100),
+    supabase.from("recipes").select("id, name, servings, calories_kcal, prep_time_minutes, cook_time_minutes, source_type").eq("source_type", "user").eq("created_by", user.id).eq("visibility", "private").eq("is_active", true).order("name").limit(100),
     supabase.from("meal_categories").select("id, slug").in("slug", ["breakfast", "lunch", "dinner"]).order("display_order"),
     supabase.from("meal_slot_types").select("id, slug").eq("slug", "recipe").maybeSingle(),
     supabase.from("household_planning_preferences").select("weekly_cooking_holiday").eq("household_id", householdId).maybeSingle(),
   ]);
 
-  if (!recipes || recipes.length === 0 || !categories || categories.length === 0 || !slotTypes) {
-    return { success: false, message: "No eligible recipe catalog is available yet. Add visible recipes before preparing a week." };
+  const recipes = [...(systemRecipes ?? []), ...(privateRecipes ?? [])];
+  if (recipes.length === 0 || !categories || categories.length === 0 || !slotTypes) {
+    return { success: false, message: "No eligible published recipes are available yet." };
   }
 
   const recipeIds = recipes.map((recipe) => recipe.id);
@@ -98,7 +100,11 @@ export async function prepareWeeklyPlan(values: PrepareWeeklyPlanInput): Promise
     return (!profile?.diet_type || diets.length === 0 || diets.includes(profile.diet_type))
       && required.every((equipment) => profile?.kitchen_equipment.includes(equipment) ?? false)
       && !allergens.some((allergen) => profile?.allergies.map((value: string) => value.toLowerCase()).includes(allergen.toLowerCase()));
-  }).sort((left, right) => (qualityByRecipe.get(right.id) ?? 0) - (qualityByRecipe.get(left.id) ?? 0) || left.name.localeCompare(right.name));
+  }).sort((left, right) => {
+    const leftScore = (qualityByRecipe.get(left.id) ?? 0) + (left.source_type === "system" ? 5 : 0);
+    const rightScore = (qualityByRecipe.get(right.id) ?? 0) + (right.source_type === "system" ? 5 : 0);
+    return rightScore - leftScore || left.name.localeCompare(right.name);
+  });
 
   if (eligibleRecipes.length === 0) return { success: false, message: "No recipes match your current diet, allergy, and kitchen equipment constraints." };
 

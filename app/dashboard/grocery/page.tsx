@@ -1,5 +1,7 @@
 import { ShoppingBasket } from "lucide-react";
 
+import GroceryBasket, { type GroceryBasketItem } from "@/components/grocery/GroceryBasket";
+import { formatWeekRange } from "@/lib/meal-plans";
 import { createClient } from "@/lib/supabase/server";
 
 type GroceryItem = {
@@ -8,6 +10,7 @@ type GroceryItem = {
   custom_name: string | null;
   effective_quantity_base: number;
   base_unit_code: string;
+  estimated_total_cost: number | null;
   is_removed: boolean;
 };
 
@@ -27,7 +30,7 @@ export default async function GroceryPage() {
 
   const { data: groceryList, error: groceryListError } = await supabase
     .from("grocery_lists")
-    .select("id, weekly_meal_plan_id, status, estimated_total, currency_code")
+    .select("id, weekly_meal_plan_id, status, currency_code")
     .eq("household_id", membership.household_id)
     .order("created_at", { ascending: false })
     .limit(1)
@@ -38,11 +41,12 @@ export default async function GroceryPage() {
     return <EmptyBasket />;
   }
 
-  const [{ data: plan, error: planError }, { data: items, error: itemsError }] = await Promise.all([
+  const [{ data: plan, error: planError }, { data: items, error: itemsError }, { count: mealCount, error: mealCountError }] = await Promise.all([
     supabase.from("weekly_meal_plans").select("week_start_date").eq("id", groceryList.weekly_meal_plan_id).maybeSingle(),
-    supabase.from("grocery_list_items").select("id, ingredient_id, custom_name, effective_quantity_base, base_unit_code, is_removed").eq("grocery_list_id", groceryList.id).eq("is_removed", false).order("created_at"),
+    supabase.from("grocery_list_items").select("id, ingredient_id, custom_name, effective_quantity_base, base_unit_code, estimated_total_cost, is_removed").eq("grocery_list_id", groceryList.id).eq("is_removed", false).order("created_at"),
+    supabase.from("weekly_meal_plan_items").select("id", { count: "exact", head: true }).eq("meal_plan_id", groceryList.weekly_meal_plan_id),
   ]);
-  if (planError || itemsError) throw new Error("Unable to load your grocery basket items.");
+  if (planError || itemsError || mealCountError) throw new Error("Unable to load your grocery basket items.");
 
   const groceryItems = (items ?? []) as GroceryItem[];
   const ingredientIds = groceryItems.flatMap((item) => item.ingredient_id ? [item.ingredient_id] : []);
@@ -53,18 +57,30 @@ export default async function GroceryPage() {
   const ingredientNames = new Map((ingredients ?? []).map((ingredient) => [ingredient.id, ingredient.name]));
 
   const currency = groceryList.currency_code ?? "INR";
-  const total = groceryList.estimated_total === null ? null : new Intl.NumberFormat("en-IN", { style: "currency", currency, maximumFractionDigits: 2 }).format(groceryList.estimated_total);
   const weekLabel = plan?.week_start_date ? new Intl.DateTimeFormat("en-IN", { day: "numeric", month: "short", timeZone: "UTC" }).format(new Date(`${plan.week_start_date}T00:00:00.000Z`)) : "your approved week";
+  const basketItems: GroceryBasketItem[] = groceryItems.map((item) => ({
+    id: item.id,
+    name: item.ingredient_id ? ingredientNames.get(item.ingredient_id) ?? "Catalog ingredient" : item.custom_name ?? "Custom item",
+    quantity: item.effective_quantity_base,
+    unit: item.base_unit_code,
+    estimatedCost: item.estimated_total_cost,
+  }));
+  const estimatedBasketCost = basketItems.reduce((total, item) => total + (item.estimatedCost ?? 0), 0);
+  const hasEstimatedBasketCost = basketItems.some((item) => item.estimatedCost !== null);
+  const currencyFormatter = new Intl.NumberFormat("en-IN", { style: "currency", currency, maximumFractionDigits: 2 });
+  const weekRange = plan?.week_start_date ? formatWeekRange(plan.week_start_date) : "—";
 
   return <section className="space-y-6" aria-labelledby="grocery-heading">
     <div className="flex flex-col gap-4 rounded-3xl border border-white/[0.08] bg-white/[0.04] p-6 backdrop-blur-xl sm:flex-row sm:items-center sm:justify-between">
       <div><p className="text-sm font-medium uppercase tracking-widest text-emerald-400/80">Approved meal plan</p><h1 id="grocery-heading" className="mt-2 text-3xl font-semibold tracking-tight text-white">Grocery basket</h1><p className="mt-2 text-sm text-zinc-400">Ingredients needed for the week starting {weekLabel}, adjusted for your pantry.</p></div>
-      {total ? <p className="text-xl font-semibold text-emerald-300">{total}</p> : null}
+      <dl className="grid grid-cols-3 gap-3 text-left sm:min-w-[28rem]"><SummaryItem label="Week" value={weekRange} /><SummaryItem label="Meals planned" value={mealCount === null ? "—" : String(mealCount)} /><SummaryItem label="Estimated cost" value={hasEstimatedBasketCost ? currencyFormatter.format(estimatedBasketCost) : "—"} /></dl>
     </div>
-    <div className="rounded-3xl border border-white/[0.08] bg-white/[0.04] p-5 sm:p-7">
-      {groceryItems.length === 0 ? <p className="rounded-xl border border-dashed border-white/10 px-4 py-8 text-center text-sm text-zinc-500">This approved week does not need any additional grocery items.</p> : <ul className="divide-y divide-white/[0.08]">{groceryItems.map((item) => <li key={item.id} className="flex items-center justify-between gap-4 py-4"><span className="font-medium text-white">{item.ingredient_id ? ingredientNames.get(item.ingredient_id) ?? "Catalog ingredient" : item.custom_name}</span><span className="shrink-0 text-sm text-emerald-300">{item.effective_quantity_base} {item.base_unit_code}</span></li>)}</ul>}
-    </div>
+    {basketItems.length === 0 ? <div className="rounded-3xl border border-white/[0.08] bg-white/[0.04] p-5 sm:p-7"><p className="rounded-xl border border-dashed border-white/10 px-4 py-8 text-center text-sm text-zinc-500">This approved week does not need any additional grocery items.</p></div> : <GroceryBasket currency={currency} items={basketItems} />}
   </section>;
+}
+
+function SummaryItem({ label, value }: { label: string; value: string }) {
+  return <div className="rounded-xl border border-white/[0.08] bg-black/10 p-3"><dt className="text-xs text-zinc-500">{label}</dt><dd className="mt-1 text-sm font-semibold text-white">{value}</dd></div>;
 }
 
 function EmptyBasket() {
