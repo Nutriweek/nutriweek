@@ -900,6 +900,7 @@ export type Database = {
       }
       pantry_items: {
         Row: {
+          available: boolean
           base_unit_code: string
           created_at: string
           expires_at: string | null
@@ -910,6 +911,7 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          available?: boolean
           base_unit_code: string
           created_at?: string
           expires_at?: string | null
@@ -920,6 +922,7 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          available?: boolean
           base_unit_code?: string
           created_at?: string
           expires_at?: string | null

@@ -19,7 +19,7 @@ type NavigationItem = {
 const navigationItems: NavigationItem[] = [
   { label: "Dashboard", icon: LayoutDashboard, href: "/dashboard" },
   { label: "Meal Plans", icon: CalendarDays, href: "/dashboard/meal-plans" },
-  { label: "Pantry (Coming Soon)", icon: Package, href: "/dashboard/pantry" },
+  { label: "Pantry", icon: Package, href: "/dashboard/pantry" },
   { label: "Grocery List", icon: ShoppingCart, href: "/dashboard/grocery" },
   { label: "Recipes", icon: ChefHat, href: "/dashboard/recipes" },
   { label: "Nutrition (Coming Soon)", icon: BarChart3, href: "/dashboard/nutrition" },

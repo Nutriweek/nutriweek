@@ -1,6 +1,7 @@
 import { ShoppingBasket } from "lucide-react";
 
 import GroceryBasket, { type GroceryBasketItem } from "@/components/grocery/GroceryBasket";
+import PantrySummary from "@/components/grocery/PantrySummary";
 import { formatWeekRange } from "@/lib/meal-plans";
 import { createClient } from "@/lib/supabase/server";
 
@@ -26,6 +27,10 @@ type MealPlanSourceItem = {
   meal_category_id: string;
   recipe_id: string | null;
   title: string | null;
+};
+
+type PantryItem = {
+  ingredient_id: string;
 };
 
 export default async function GroceryPage() {
@@ -55,22 +60,28 @@ export default async function GroceryPage() {
     return <EmptyBasket />;
   }
 
-  const [{ data: plan, error: planError }, { data: items, error: itemsError }, { count: mealCount, error: mealCountError }] = await Promise.all([
+  const [{ data: plan, error: planError }, { data: items, error: itemsError }, { count: mealCount, error: mealCountError }, { data: pantryItems, error: pantryItemsError }] = await Promise.all([
     supabase.from("weekly_meal_plans").select("week_start_date").eq("id", groceryList.weekly_meal_plan_id).maybeSingle(),
     supabase.from("grocery_list_items").select("id, ingredient_id, custom_name, effective_quantity_base, base_unit_code, estimated_total_cost, is_removed").eq("grocery_list_id", groceryList.id).eq("is_removed", false).order("created_at"),
     supabase.from("weekly_meal_plan_items").select("id", { count: "exact", head: true }).eq("meal_plan_id", groceryList.weekly_meal_plan_id),
+    supabase.from("pantry_items").select("ingredient_id").eq("household_id", membership.household_id).eq("available", true),
   ]);
-  if (planError || itemsError || mealCountError) throw new Error("Unable to load your grocery basket items.");
+  if (planError || itemsError || mealCountError || pantryItemsError) throw new Error("Unable to load your grocery basket items.");
 
-  const groceryItems = (items ?? []) as GroceryItem[];
+  const availablePantryIngredientIds = new Set(((pantryItems ?? []) as PantryItem[]).map((item) => item.ingredient_id));
+  const allGroceryItems = (items ?? []) as GroceryItem[];
+  const pantryCoveredGroceryItems = allGroceryItems.filter((item) => item.ingredient_id && availablePantryIngredientIds.has(item.ingredient_id));
+  const groceryItems = allGroceryItems.filter((item) => !item.ingredient_id || !availablePantryIngredientIds.has(item.ingredient_id));
   const ingredientIds = groceryItems.flatMap((item) => item.ingredient_id ? [item.ingredient_id] : []);
+  const pantryIngredientIds = pantryCoveredGroceryItems.flatMap((item) => item.ingredient_id ? [item.ingredient_id] : []);
+  const allIngredientIds = [...new Set([...ingredientIds, ...pantryIngredientIds])];
   const groceryItemIds = groceryItems.map((item) => item.id);
   const [
     { data: ingredients, error: ingredientsError },
     { data: itemSources, error: itemSourcesError },
   ] = await Promise.all([
-    ingredientIds.length > 0
-      ? supabase.from("ingredients").select("id, name").in("id", ingredientIds)
+    allIngredientIds.length > 0
+      ? supabase.from("ingredients").select("id, name").in("id", allIngredientIds)
       : Promise.resolve({ data: [], error: null }),
     groceryItemIds.length > 0
       ? supabase.from("grocery_list_item_sources").select("grocery_list_item_id, weekly_meal_plan_item_id, recipe_id").in("grocery_list_item_id", groceryItemIds)
@@ -133,12 +144,14 @@ export default async function GroceryPage() {
   const weekLabel = plan?.week_start_date ? new Intl.DateTimeFormat("en-IN", { day: "numeric", month: "short", timeZone: "UTC" }).format(new Date(`${plan.week_start_date}T00:00:00.000Z`)) : "your approved week";
   const basketItems: GroceryBasketItem[] = groceryItems.map((item) => ({
     id: item.id,
+    ingredientId: item.ingredient_id,
     name: item.ingredient_id ? ingredientNames.get(item.ingredient_id) ?? "Catalog ingredient" : item.custom_name ?? "Custom item",
     quantity: item.effective_quantity_base,
     unit: item.base_unit_code,
     estimatedCost: item.estimated_total_cost,
     usedIn: sourcesByGroceryItemId.get(item.id) ?? [],
   }));
+  const pantrySummaryItems = [...new Set(pantryCoveredGroceryItems.map((item) => item.ingredient_id ? ingredientNames.get(item.ingredient_id) ?? "Catalog ingredient" : item.custom_name ?? "Custom item"))];
   const estimatedBasketCost = basketItems.reduce((total, item) => total + (item.estimatedCost ?? 0), 0);
   const hasEstimatedBasketCost = basketItems.some((item) => item.estimatedCost !== null);
   const currencyFormatter = new Intl.NumberFormat("en-IN", { style: "currency", currency, maximumFractionDigits: 2 });
@@ -149,6 +162,7 @@ export default async function GroceryPage() {
       <div><p className="text-sm font-medium uppercase tracking-widest text-emerald-400/80">Approved meal plan</p><h1 id="grocery-heading" className="mt-2 text-3xl font-semibold tracking-tight text-white">Grocery basket</h1><p className="mt-2 text-sm text-zinc-400">Ingredients needed for the week starting {weekLabel}, adjusted for your pantry.</p></div>
       <dl className="grid grid-cols-3 gap-3 text-left sm:min-w-[28rem]"><SummaryItem label="Week" value={weekRange} /><SummaryItem label="Meals planned" value={mealCount === null ? "—" : String(mealCount)} /><SummaryItem label="Estimated cost" value={hasEstimatedBasketCost ? currencyFormatter.format(estimatedBasketCost) : "—"} /></dl>
     </div>
+    <PantrySummary items={pantrySummaryItems} />
     {basketItems.length === 0 ? <div className="rounded-3xl border border-white/[0.08] bg-white/[0.04] p-5 sm:p-7"><p className="rounded-xl border border-dashed border-white/10 px-4 py-8 text-center text-sm text-zinc-500">This approved week does not need any additional grocery items.</p></div> : <GroceryBasket currency={currency} items={basketItems} />}
   </section>;
 }

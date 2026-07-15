@@ -1,12 +1,15 @@
 "use client";
 
 import { ChevronDown, ChevronRight } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
+import { useMemo, useState, useTransition } from "react";
 
 import ConfirmationModal from "@/components/ui/ConfirmationModal";
+import { addIngredientToPantry } from "@/lib/pantry/actions";
 
 export type GroceryBasketItem = {
   id: string;
+  ingredientId: string | null;
   name: string;
   quantity: number;
   unit: string;
@@ -30,10 +33,13 @@ const providers = [
 ];
 
 export default function GroceryBasket({ currency, items }: GroceryBasketProps) {
+  const router = useRouter();
   const [selectedItemIds, setSelectedItemIds] = useState(() => new Set(items.map((item) => item.id)));
   const [expandedItemIds, setExpandedItemIds] = useState(() => new Set<string>());
   const [pendingRemovalItem, setPendingRemovalItem] = useState<GroceryBasketItem | null>(null);
+  const [removalReason, setRemovalReason] = useState<"already_have" | "dont_need">("already_have");
   const [checkoutMessage, setCheckoutMessage] = useState<string | null>(null);
+  const [isRemoving, startRemovalTransition] = useTransition();
   const currencyFormatter = useMemo(
     () => new Intl.NumberFormat("en-IN", { style: "currency", currency, maximumFractionDigits: 2 }),
     [currency],
@@ -47,6 +53,7 @@ export default function GroceryBasket({ currency, items }: GroceryBasketProps) {
     setCheckoutMessage(null);
     if (selectedItemIds.has(item.id)) {
       setPendingRemovalItem(item);
+      setRemovalReason(item.ingredientId ? "already_have" : "dont_need");
       return;
     }
 
@@ -58,15 +65,38 @@ export default function GroceryBasket({ currency, items }: GroceryBasketProps) {
     });
   }
 
-  function confirmRemoval() {
-    if (!pendingRemovalItem) return;
-
+  function removeSelectedItem(item: GroceryBasketItem) {
     setSelectedItemIds((current) => {
       const next = new Set(current);
-      next.delete(pendingRemovalItem.id);
+      next.delete(item.id);
       return next;
     });
-    setPendingRemovalItem(null);
+  }
+
+  function confirmRemoval() {
+    if (!pendingRemovalItem) return;
+    const item = pendingRemovalItem;
+
+    if (removalReason === "already_have" && item.ingredientId) {
+      const ingredientId = item.ingredientId;
+      startRemovalTransition(async () => {
+        const result = await addIngredientToPantry(ingredientId);
+        if (!result.success) {
+          setCheckoutMessage(result.message);
+          return;
+        }
+
+        removeSelectedItem(item);
+        setPendingRemovalItem(null);
+        router.refresh();
+      });
+      return;
+    }
+
+    startRemovalTransition(() => {
+      removeSelectedItem(item);
+      setPendingRemovalItem(null);
+    });
   }
 
   function toggleExpanded(itemId: string) {
@@ -128,23 +158,31 @@ export default function GroceryBasket({ currency, items }: GroceryBasketProps) {
     {checkoutMessage ? <p className="text-center text-sm text-zinc-400" role="status">{checkoutMessage}</p> : null}
     <ConfirmationModal
       open={Boolean(pendingRemovalItem)}
-      title="Remove Ingredient?"
-      description="The following meals use this ingredient."
+      title="Why are you removing this ingredient?"
+      description={pendingRemovalItem ? pendingRemovalItem.name : undefined}
       icon={<span aria-hidden="true">!</span>}
-      confirmText="Remove Anyway"
+      confirmText="Remove Ingredient"
       cancelText="Keep Ingredient"
       destructive
+      loading={isRemoving}
       onCancel={() => setPendingRemovalItem(null)}
       onConfirm={confirmRemoval}
     >
-      <div className="space-y-4">
-        <ul className="max-h-64 space-y-4 overflow-y-auto rounded-2xl border border-white/[0.08] bg-black/20 p-4">
-          {pendingRemovalItem?.usedIn.map((usage) => <li key={usage.mealPlanItemId} className="text-sm">
-            <p className="text-xs font-medium uppercase tracking-wide text-zinc-500">🍽 {usage.mealLabel}</p>
-            <p className="mt-1.5 font-semibold text-zinc-100">{usage.recipeName}</p>
-          </li>)}
-        </ul>
-        <p className="text-sm leading-relaxed text-zinc-400">This ingredient is used in the meals above. If you remove it, remember to replace or skip it when cooking.</p>
+      <div className="space-y-3">
+        <label className={`flex cursor-pointer gap-3 rounded-2xl border p-4 transition ${removalReason === "already_have" ? "border-emerald-400/40 bg-emerald-500/10" : "border-white/[0.08] bg-black/15"} ${pendingRemovalItem?.ingredientId ? "" : "cursor-not-allowed opacity-50"}`}>
+          <input type="radio" name="removal-reason" value="already_have" checked={removalReason === "already_have"} disabled={!pendingRemovalItem?.ingredientId} onChange={() => setRemovalReason("already_have")} className="mt-1 h-4 w-4 accent-emerald-400" />
+          <span>
+            <span className="block font-medium text-white">I already have it</span>
+            <span className="mt-1 block text-sm text-zinc-400">Add this ingredient to Kitchen Pantry and remove it from shopping.</span>
+          </span>
+        </label>
+        <label className={`flex cursor-pointer gap-3 rounded-2xl border p-4 transition ${removalReason === "dont_need" ? "border-emerald-400/40 bg-emerald-500/10" : "border-white/[0.08] bg-black/15"}`}>
+          <input type="radio" name="removal-reason" value="dont_need" checked={removalReason === "dont_need"} onChange={() => setRemovalReason("dont_need")} className="mt-1 h-4 w-4 accent-emerald-400" />
+          <span>
+            <span className="block font-medium text-white">I don&apos;t need it</span>
+            <span className="mt-1 block text-sm text-zinc-400">Remove it from this grocery basket only.</span>
+          </span>
+        </label>
       </div>
     </ConfirmationModal>
   </div>;
