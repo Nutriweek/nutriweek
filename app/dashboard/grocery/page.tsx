@@ -14,6 +14,20 @@ type GroceryItem = {
   is_removed: boolean;
 };
 
+type GroceryItemSource = {
+  grocery_list_item_id: string;
+  weekly_meal_plan_item_id: string | null;
+  recipe_id: string | null;
+};
+
+type MealPlanSourceItem = {
+  id: string;
+  meal_date: string;
+  meal_category_id: string;
+  recipe_id: string | null;
+  title: string | null;
+};
+
 export default async function GroceryPage() {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
@@ -50,11 +64,70 @@ export default async function GroceryPage() {
 
   const groceryItems = (items ?? []) as GroceryItem[];
   const ingredientIds = groceryItems.flatMap((item) => item.ingredient_id ? [item.ingredient_id] : []);
-  const { data: ingredients, error: ingredientsError } = ingredientIds.length > 0
-    ? await supabase.from("ingredients").select("id, name").in("id", ingredientIds)
-    : { data: [], error: null };
+  const groceryItemIds = groceryItems.map((item) => item.id);
+  const [
+    { data: ingredients, error: ingredientsError },
+    { data: itemSources, error: itemSourcesError },
+  ] = await Promise.all([
+    ingredientIds.length > 0
+      ? supabase.from("ingredients").select("id, name").in("id", ingredientIds)
+      : Promise.resolve({ data: [], error: null }),
+    groceryItemIds.length > 0
+      ? supabase.from("grocery_list_item_sources").select("grocery_list_item_id, weekly_meal_plan_item_id, recipe_id").in("grocery_list_item_id", groceryItemIds)
+      : Promise.resolve({ data: [], error: null }),
+  ]);
   if (ingredientsError) throw new Error("Unable to load grocery ingredient names.");
+  if (itemSourcesError) throw new Error("Unable to load grocery usage details.");
+
+  const sources = (itemSources ?? []) as GroceryItemSource[];
+  const mealPlanItemIds = [...new Set(sources.flatMap((source) => source.weekly_meal_plan_item_id ? [source.weekly_meal_plan_item_id] : []))];
+  const recipeSourceIds = [...new Set(sources.flatMap((source) => source.recipe_id ? [source.recipe_id] : []))];
+  const { data: mealPlanItems, error: mealPlanItemsError } = mealPlanItemIds.length > 0
+    ? await supabase.from("weekly_meal_plan_items").select("id, meal_date, meal_category_id, recipe_id, title").in("id", mealPlanItemIds)
+    : { data: [], error: null };
+  if (mealPlanItemsError) throw new Error("Unable to load meal usage details.");
+
+  const sourceMealPlanItems = (mealPlanItems ?? []) as MealPlanSourceItem[];
+  const mealCategoryIds = [...new Set(sourceMealPlanItems.map((item) => item.meal_category_id))];
+  const recipeIds = [...new Set([
+    ...recipeSourceIds,
+    ...sourceMealPlanItems.flatMap((item) => item.recipe_id ? [item.recipe_id] : []),
+  ])];
+  const [
+    { data: mealCategories, error: mealCategoriesError },
+    { data: recipes, error: recipesError },
+  ] = await Promise.all([
+    mealCategoryIds.length > 0
+      ? supabase.from("meal_categories").select("id, name").in("id", mealCategoryIds)
+      : Promise.resolve({ data: [], error: null }),
+    recipeIds.length > 0
+      ? supabase.from("recipes").select("id, name").in("id", recipeIds)
+      : Promise.resolve({ data: [], error: null }),
+  ]);
+  if (mealCategoriesError || recipesError) throw new Error("Unable to load meal usage labels.");
+
   const ingredientNames = new Map((ingredients ?? []).map((ingredient) => [ingredient.id, ingredient.name]));
+  const mealCategoryNames = new Map((mealCategories ?? []).map((category) => [category.id, category.name]));
+  const recipeNames = new Map((recipes ?? []).map((recipe) => [recipe.id, recipe.name]));
+  const mealPlanItemsById = new Map(sourceMealPlanItems.map((item) => [item.id, item]));
+  const sourcesByGroceryItemId = new Map<string, GroceryBasketItem["usedIn"]>();
+  const weekdayFormatter = new Intl.DateTimeFormat("en-IN", { weekday: "long", timeZone: "UTC" });
+  for (const source of sources) {
+    if (!source.weekly_meal_plan_item_id) continue;
+    const mealPlanItem = mealPlanItemsById.get(source.weekly_meal_plan_item_id);
+    if (!mealPlanItem) continue;
+
+    const sourceRecipeId = source.recipe_id ?? mealPlanItem.recipe_id;
+    const usedIn = sourcesByGroceryItemId.get(source.grocery_list_item_id) ?? [];
+    if (!usedIn.some((entry) => entry.mealPlanItemId === mealPlanItem.id)) {
+      usedIn.push({
+        mealPlanItemId: mealPlanItem.id,
+        mealLabel: `${weekdayFormatter.format(new Date(`${mealPlanItem.meal_date}T00:00:00.000Z`))} ${mealCategoryNames.get(mealPlanItem.meal_category_id) ?? "Meal"}`,
+        recipeName: sourceRecipeId ? recipeNames.get(sourceRecipeId) ?? mealPlanItem.title ?? "Planned meal" : mealPlanItem.title ?? "Planned meal",
+      });
+    }
+    sourcesByGroceryItemId.set(source.grocery_list_item_id, usedIn);
+  }
 
   const currency = groceryList.currency_code ?? "INR";
   const weekLabel = plan?.week_start_date ? new Intl.DateTimeFormat("en-IN", { day: "numeric", month: "short", timeZone: "UTC" }).format(new Date(`${plan.week_start_date}T00:00:00.000Z`)) : "your approved week";
@@ -64,6 +137,7 @@ export default async function GroceryPage() {
     quantity: item.effective_quantity_base,
     unit: item.base_unit_code,
     estimatedCost: item.estimated_total_cost,
+    usedIn: sourcesByGroceryItemId.get(item.id) ?? [],
   }));
   const estimatedBasketCost = basketItems.reduce((total, item) => total + (item.estimatedCost ?? 0), 0);
   const hasEstimatedBasketCost = basketItems.some((item) => item.estimatedCost !== null);

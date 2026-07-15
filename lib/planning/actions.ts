@@ -8,6 +8,7 @@ import type { Json, Tables } from "@/lib/supabase/database.types";
 import { getUpcomingWeekStart, getWeekEnd } from "@/lib/meal-plans/constants";
 
 import { approveWeeklyPlanSchema, prepareWeeklyPlanSchema, type ApproveWeeklyPlanInput, type PrepareWeeklyPlanInput } from "./schemas";
+import { getPreferenceScore, isIndulgentRecipe } from "./preference-scoring";
 import type { PlanningActionResult, PlanningRecipe } from "./types";
 
 type PlannedRecipeItem = Pick<Tables<"weekly_meal_plan_items">, "id" | "recipe_id" | "servings">;
@@ -43,10 +44,21 @@ export async function prepareWeeklyPlan(values: PrepareWeeklyPlanInput): Promise
   const { supabase, user, householdId } = await getPlanningContext();
   if (!user || !householdId) return { success: false, message: "Your household is not available yet." };
 
+  const { data: existingPlan, error: existingPlanError } = await supabase
+    .from("weekly_meal_plans")
+    .select("status")
+    .eq("household_id", householdId)
+    .eq("week_start_date", parsed.data.week_start_date)
+    .maybeSingle();
+  if (existingPlanError) return { success: false, message: "We could not check this weekly plan." };
+  if (existingPlan && ["approved", "grocery_generated", "archived"].includes(existingPlan.status)) {
+    return { success: false, message: "Approved weeks cannot be regenerated." };
+  }
+
   const [{ data: profile }, { data: systemRecipes }, { data: privateRecipes }, { data: categories }, { data: slotTypes }, { data: preferences }] = await Promise.all([
     supabase.from("profiles").select("diet_type, allergies, kitchen_equipment, weekly_grocery_budget, currency_code").eq("id", user.id).maybeSingle(),
-    supabase.from("recipes").select("id, name, servings, calories_kcal, prep_time_minutes, cook_time_minutes, source_type").eq("source_type", "system").eq("visibility", "system").eq("publication_status", "published").eq("is_active", true).order("name").limit(100),
-    supabase.from("recipes").select("id, name, servings, calories_kcal, prep_time_minutes, cook_time_minutes, source_type").eq("source_type", "user").eq("created_by", user.id).eq("visibility", "private").eq("is_active", true).order("name").limit(100),
+    supabase.from("recipes").select("id, name, servings, calories_kcal, protein_g, fiber_g, sugar_g, fat_g, prep_time_minutes, cook_time_minutes, estimated_cost, primary_cuisine_region_id, source_type").eq("source_type", "system").eq("visibility", "system").eq("publication_status", "published").eq("is_active", true).order("name").limit(100),
+    supabase.from("recipes").select("id, name, servings, calories_kcal, protein_g, fiber_g, sugar_g, fat_g, prep_time_minutes, cook_time_minutes, estimated_cost, primary_cuisine_region_id, source_type").eq("source_type", "user").eq("created_by", user.id).eq("visibility", "private").eq("is_active", true).order("name").limit(100),
     supabase.from("meal_categories").select("id, slug").in("slug", ["breakfast", "lunch", "dinner"]).order("display_order"),
     supabase.from("meal_slot_types").select("id, slug").eq("slug", "recipe").maybeSingle(),
     supabase.from("household_planning_preferences").select("weekly_cooking_holiday").eq("household_id", householdId).maybeSingle(),
@@ -58,7 +70,7 @@ export async function prepareWeeklyPlan(values: PrepareWeeklyPlanInput): Promise
   }
 
   const recipeIds = recipes.map((recipe) => recipe.id);
-  const [{ data: dietCompatibility }, { data: requiredEquipment }, { data: structuredEquipmentRequirements }, { data: recipeIngredients }, { data: ingredientAllergens }, { data: qualityScores }, { data: mealCategoryAssignments }] = await Promise.all([
+  const [{ data: dietCompatibility }, { data: requiredEquipment }, { data: structuredEquipmentRequirements }, { data: recipeIngredients }, { data: ingredientAllergens }, { data: qualityScores }, { data: mealCategoryAssignments }, { data: tagAssignments }] = await Promise.all([
     supabase.from("recipe_diet_compatibilities").select("recipe_id, diet_type").in("recipe_id", recipeIds),
     supabase.from("recipe_required_equipment").select("recipe_id, equipment_name").in("recipe_id", recipeIds),
     supabase.from("recipe_equipment_requirements").select("recipe_id, equipment_id, is_required").in("recipe_id", recipeIds).eq("is_required", true),
@@ -66,6 +78,7 @@ export async function prepareWeeklyPlan(values: PrepareWeeklyPlanInput): Promise
     supabase.from("ingredient_allergens").select("ingredient_id, allergen_code"),
     supabase.from("recipe_quality_scores").select("recipe_id, score").in("recipe_id", recipeIds),
     supabase.from("recipe_meal_categories").select("recipe_id, meal_category_id").in("recipe_id", recipeIds),
+    supabase.from("recipe_tag_assignments").select("recipe_id, tag_id").in("recipe_id", recipeIds),
   ]);
 
   const compatibleDiet = new Map<string, string[]>();
@@ -82,13 +95,33 @@ export async function prepareWeeklyPlan(values: PrepareWeeklyPlanInput): Promise
     if (equipmentName) equipmentByRecipe.set(item.recipe_id, [...(equipmentByRecipe.get(item.recipe_id) ?? []), equipmentName]);
   }
   const allergensByIngredient = new Map((ingredientAllergens ?? []).map((item) => [item.ingredient_id, item.allergen_code]));
+  const ingredientIds = [...new Set((recipeIngredients ?? []).map((item) => item.ingredient_id))];
+  const tagIds = [...new Set((tagAssignments ?? []).map((item) => item.tag_id))];
+  const regionIds = [...new Set(recipes.flatMap((recipe) => recipe.primary_cuisine_region_id ? [recipe.primary_cuisine_region_id] : []))];
+  const [{ data: ingredientCatalog }, { data: tags }, { data: cuisineRegions }] = await Promise.all([
+    ingredientIds.length > 0 ? supabase.from("ingredients").select("id, slug").in("id", ingredientIds) : Promise.resolve({ data: [] }),
+    tagIds.length > 0 ? supabase.from("recipe_tags").select("id, slug").in("id", tagIds) : Promise.resolve({ data: [] }),
+    regionIds.length > 0 ? supabase.from("cuisine_regions").select("id, slug").in("id", regionIds) : Promise.resolve({ data: [] }),
+  ]);
+  const ingredientSlugs = new Map((ingredientCatalog ?? []).map((ingredient) => [ingredient.id, ingredient.slug]));
+  const tagSlugs = new Map((tags ?? []).map((tag) => [tag.id, tag.slug]));
+  const regionSlugs = new Map((cuisineRegions ?? []).map((region) => [region.id, region.slug]));
   const recipeAllergens = new Map<string, string[]>();
+  const ingredientSlugsByRecipe = new Map<string, string[]>();
   for (const item of recipeIngredients ?? []) {
     const allergen = allergensByIngredient.get(item.ingredient_id);
     if (allergen) recipeAllergens.set(item.recipe_id, [...(recipeAllergens.get(item.recipe_id) ?? []), allergen]);
+    const ingredientSlug = ingredientSlugs.get(item.ingredient_id);
+    if (ingredientSlug) ingredientSlugsByRecipe.set(item.recipe_id, [...(ingredientSlugsByRecipe.get(item.recipe_id) ?? []), ingredientSlug]);
+  }
+  const tagSlugsByRecipe = new Map<string, string[]>();
+  for (const item of tagAssignments ?? []) {
+    const tagSlug = tagSlugs.get(item.tag_id);
+    if (tagSlug) tagSlugsByRecipe.set(item.recipe_id, [...(tagSlugsByRecipe.get(item.recipe_id) ?? []), tagSlug]);
   }
 
   const qualityByRecipe = new Map((qualityScores ?? []).map((score) => [score.recipe_id, score.score]));
+  const preferenceScoreByRecipe = new Map((recipes as PlanningRecipe[]).map((recipe) => [recipe.id, getPreferenceScore(parsed.data.weekly_preference, { recipe, qualityScore: qualityByRecipe.get(recipe.id) ?? 0, ingredientSlugs: ingredientSlugsByRecipe.get(recipe.id) ?? [], tagSlugs: tagSlugsByRecipe.get(recipe.id) ?? [], cuisineRegionSlug: recipe.primary_cuisine_region_id ? regionSlugs.get(recipe.primary_cuisine_region_id) ?? null : null })]));
   const recipeIdsByMealCategory = new Map<string, Set<string>>();
   for (const assignment of mealCategoryAssignments ?? []) {
     recipeIdsByMealCategory.set(assignment.meal_category_id, new Set([...(recipeIdsByMealCategory.get(assignment.meal_category_id) ?? []), assignment.recipe_id]));
@@ -101,15 +134,15 @@ export async function prepareWeeklyPlan(values: PrepareWeeklyPlanInput): Promise
       && required.every((equipment) => profile?.kitchen_equipment.includes(equipment) ?? false)
       && !allergens.some((allergen) => profile?.allergies.map((value: string) => value.toLowerCase()).includes(allergen.toLowerCase()));
   }).sort((left, right) => {
-    const leftScore = (qualityByRecipe.get(left.id) ?? 0) + (left.source_type === "system" ? 5 : 0);
-    const rightScore = (qualityByRecipe.get(right.id) ?? 0) + (right.source_type === "system" ? 5 : 0);
+    const leftScore = (qualityByRecipe.get(left.id) ?? 0) + (left.source_type === "system" ? 5 : 0) + (preferenceScoreByRecipe.get(left.id) ?? 0);
+    const rightScore = (qualityByRecipe.get(right.id) ?? 0) + (right.source_type === "system" ? 5 : 0) + (preferenceScoreByRecipe.get(right.id) ?? 0);
     return rightScore - leftScore || left.name.localeCompare(right.name);
   });
 
   if (eligibleRecipes.length === 0) return { success: false, message: "No recipes match your current diet, allergy, and kitchen equipment constraints." };
 
   const { data: plan, error: planError } = await supabase.from("weekly_meal_plans").upsert(
-    { household_id: householdId, week_start_date: parsed.data.week_start_date, status: "draft", generation_source: "deterministic" },
+    { household_id: householdId, week_start_date: parsed.data.week_start_date, status: "draft", generation_source: "deterministic", generation_context: { weekly_preference: parsed.data.weekly_preference } },
     { onConflict: "household_id,week_start_date" },
   ).select("id").single();
   if (planError || !plan) return { success: false, message: "We could not prepare this weekly plan." };
@@ -117,21 +150,26 @@ export async function prepareWeeklyPlan(values: PrepareWeeklyPlanInput): Promise
   await supabase.from("weekly_meal_plan_items").delete().eq("meal_plan_id", plan.id);
   const items = [] as { household_id: string; meal_plan_id: string; meal_date: string; meal_category_id: string; meal_slot_type_id: string; recipe_id: string; servings: number | null; slot_index: number }[];
   let recipeIndex = 0;
+  let cheatMealCount = 0;
+  const usedRecipeIds = new Set<string>();
   for (let day = 0; day < 6; day += 1) {
     if (preferences?.weekly_cooking_holiday === day) continue;
     for (const category of categories) {
       const categoryRecipeIds = recipeIdsByMealCategory.get(category.id);
       const matchedCategoryRecipes = categoryRecipeIds ? eligibleRecipes.filter((recipe) => categoryRecipeIds.has(recipe.id)) : [];
       const categoryRecipes = matchedCategoryRecipes.length > 0 ? matchedCategoryRecipes : eligibleRecipes;
-      const recipe = categoryRecipes[recipeIndex % categoryRecipes.length];
+      const rotatingRecipes = [...categoryRecipes.slice(recipeIndex % categoryRecipes.length), ...categoryRecipes.slice(0, recipeIndex % categoryRecipes.length)];
+      const recipe = rotatingRecipes.find((candidate) => !usedRecipeIds.has(candidate.id) && (parsed.data.weekly_preference !== "cheat_week" || cheatMealCount < 2 || !isIndulgentRecipe({ recipe: candidate, tagSlugs: tagSlugsByRecipe.get(candidate.id) ?? [] }))) ?? rotatingRecipes[0];
       recipeIndex += 1;
+      usedRecipeIds.add(recipe.id);
+      if (parsed.data.weekly_preference === "cheat_week" && isIndulgentRecipe({ recipe, tagSlugs: tagSlugsByRecipe.get(recipe.id) ?? [] })) cheatMealCount += 1;
       items.push({ household_id: householdId, meal_plan_id: plan.id, meal_date: dateForOffset(parsed.data.week_start_date, day), meal_category_id: category.id, meal_slot_type_id: slotTypes.id, recipe_id: recipe.id, servings: recipe.servings, slot_index: 0 });
     }
   }
   const { data: savedItems, error: itemsError } = await supabase.from("weekly_meal_plan_items").insert(items).select("id, recipe_id, meal_category_id");
   if (itemsError) return { success: false, message: "We could not save the prepared meal slots." };
 
-  const { data: run, error: runError } = await supabase.from("meal_plan_generation_runs").insert({ household_id: householdId, meal_plan_id: plan.id, generation_source: "deterministic", created_by: user.id, input_snapshot: { diet_type: profile?.diet_type, allergies: profile?.allergies ?? [], kitchen_equipment: profile?.kitchen_equipment ?? [], budget: profile?.weekly_grocery_budget, currency: profile?.currency_code }, output_snapshot: { recipe_ids: eligibleRecipes.map((recipe) => recipe.id), meal_slot_count: items.length } }).select("id").single();
+  const { data: run, error: runError } = await supabase.from("meal_plan_generation_runs").insert({ household_id: householdId, meal_plan_id: plan.id, generation_source: "deterministic", created_by: user.id, input_snapshot: { diet_type: profile?.diet_type, allergies: profile?.allergies ?? [], kitchen_equipment: profile?.kitchen_equipment ?? [], budget: profile?.weekly_grocery_budget, currency: profile?.currency_code, weekly_preference: parsed.data.weekly_preference }, output_snapshot: { recipe_ids: eligibleRecipes.map((recipe) => recipe.id), meal_slot_count: items.length } }).select("id").single();
   if (!runError && run) {
     const explanations = [
       { generation_run_id: run.id, explanation_code: "diet", message: profile?.diet_type ? "Matches your selected diet." : "Uses recipes from your available catalog.", metadata: {} },

@@ -1,7 +1,9 @@
 "use client";
 
-import { ChevronRight } from "lucide-react";
+import { ChevronDown, ChevronRight } from "lucide-react";
 import { useMemo, useState } from "react";
+
+import ConfirmationModal from "@/components/ui/ConfirmationModal";
 
 export type GroceryBasketItem = {
   id: string;
@@ -9,6 +11,11 @@ export type GroceryBasketItem = {
   quantity: number;
   unit: string;
   estimatedCost: number | null;
+  usedIn: {
+    mealPlanItemId: string;
+    mealLabel: string;
+    recipeName: string;
+  }[];
 };
 
 type GroceryBasketProps = {
@@ -24,6 +31,8 @@ const providers = [
 
 export default function GroceryBasket({ currency, items }: GroceryBasketProps) {
   const [selectedItemIds, setSelectedItemIds] = useState(() => new Set(items.map((item) => item.id)));
+  const [expandedItemIds, setExpandedItemIds] = useState(() => new Set<string>());
+  const [pendingRemovalItem, setPendingRemovalItem] = useState<GroceryBasketItem | null>(null);
   const [checkoutMessage, setCheckoutMessage] = useState<string | null>(null);
   const currencyFormatter = useMemo(
     () => new Intl.NumberFormat("en-IN", { style: "currency", currency, maximumFractionDigits: 2 }),
@@ -32,11 +41,36 @@ export default function GroceryBasket({ currency, items }: GroceryBasketProps) {
   const selectedItems = items.filter((item) => selectedItemIds.has(item.id));
   const estimatedCost = selectedItems.reduce((total, item) => total + (item.estimatedCost ?? 0), 0);
   const hasEstimatedCost = selectedItems.some((item) => item.estimatedCost !== null);
-  const estimatedCostLabel = hasEstimatedCost ? currencyFormatter.format(estimatedCost) : "—";
+  const estimatedCostLabel = hasEstimatedCost ? currencyFormatter.format(estimatedCost) : "-";
 
-  function toggleItem(itemId: string) {
+  function toggleItem(item: GroceryBasketItem) {
     setCheckoutMessage(null);
+    if (selectedItemIds.has(item.id)) {
+      setPendingRemovalItem(item);
+      return;
+    }
+
     setSelectedItemIds((current) => {
+      const next = new Set(current);
+      if (next.has(item.id)) next.delete(item.id);
+      else next.add(item.id);
+      return next;
+    });
+  }
+
+  function confirmRemoval() {
+    if (!pendingRemovalItem) return;
+
+    setSelectedItemIds((current) => {
+      const next = new Set(current);
+      next.delete(pendingRemovalItem.id);
+      return next;
+    });
+    setPendingRemovalItem(null);
+  }
+
+  function toggleExpanded(itemId: string) {
+    setExpandedItemIds((current) => {
       const next = new Set(current);
       if (next.has(itemId)) next.delete(itemId);
       else next.add(itemId);
@@ -56,12 +90,30 @@ export default function GroceryBasket({ currency, items }: GroceryBasketProps) {
       <ul className="divide-y divide-white/[0.08]">
         {items.map((item) => {
           const isSelected = selectedItemIds.has(item.id);
+          const isExpanded = expandedItemIds.has(item.id);
           return <li key={item.id}>
-            <label className={`flex cursor-pointer items-center gap-3 py-4 transition ${isSelected ? "" : "opacity-50"}`}>
-              <input type="checkbox" checked={isSelected} onChange={() => toggleItem(item.id)} className="h-5 w-5 shrink-0 accent-emerald-400" />
-              <span className="min-w-0 flex-1"><span className="block font-medium text-white">{item.name}</span><span className="mt-1 block text-sm text-emerald-300">{item.quantity} {item.unit}</span></span>
-              <span className={`shrink-0 text-sm font-medium ${isSelected ? "text-white" : "text-zinc-500"}`}>{item.estimatedCost === null ? "—" : currencyFormatter.format(item.estimatedCost)}</span>
-            </label>
+            <div className={`py-4 transition ${isSelected ? "" : "opacity-50"}`}>
+              <div onClick={() => toggleItem(item)} className="flex cursor-pointer items-start gap-3">
+                <input type="checkbox" checked={isSelected} onChange={() => toggleItem(item)} onClick={(event) => event.stopPropagation()} className="mt-1 h-5 w-5 shrink-0 accent-emerald-400" />
+                <div className="min-w-0 flex-1">
+                  <span className="block font-medium text-white">{item.name}</span>
+                  <span className="mt-1 block text-sm text-emerald-300">{item.quantity} {item.unit}</span>
+                  <button type="button" onClick={(event) => { event.stopPropagation(); toggleExpanded(item.id); }} className="mt-2 inline-flex items-center gap-1 text-sm text-zinc-400 transition hover:text-zinc-200" aria-expanded={isExpanded}>
+                    Used in {item.usedIn.length} meal{item.usedIn.length === 1 ? "" : "s"}
+                    <ChevronDown className={`h-4 w-4 transition ${isExpanded ? "rotate-180" : ""}`} aria-hidden="true" />
+                  </button>
+                </div>
+                <span className={`shrink-0 pt-1 text-sm font-medium ${isSelected ? "text-white" : "text-zinc-500"}`}>{item.estimatedCost === null ? "-" : currencyFormatter.format(item.estimatedCost)}</span>
+              </div>
+              {isExpanded && item.usedIn.length > 0 ? <div className="mt-3 rounded-2xl border border-white/[0.08] bg-black/15 p-3">
+                <ul className="space-y-3">
+                  {item.usedIn.map((usage) => <li key={usage.mealPlanItemId} className="text-sm">
+                    <p className="font-medium text-zinc-300">{usage.mealLabel}</p>
+                    <p className="mt-1 text-zinc-500">{usage.recipeName}</p>
+                  </li>)}
+                </ul>
+              </div> : null}
+            </div>
           </li>;
         })}
       </ul>
@@ -74,6 +126,27 @@ export default function GroceryBasket({ currency, items }: GroceryBasketProps) {
 
     <div className="flex flex-col gap-3 rounded-3xl border border-emerald-400/20 bg-emerald-500/10 p-5 sm:flex-row sm:items-center sm:justify-between"><div><p className="font-semibold text-emerald-100">{selectedItems.length} item{selectedItems.length === 1 ? "" : "s"} selected</p><p className="mt-1 text-sm text-emerald-100/70">{estimatedCostLabel}</p></div><button type="button" onClick={() => setCheckoutMessage("Store selection will be available when a grocery provider is connected.")} disabled={selectedItems.length === 0} className="inline-flex items-center justify-center gap-2 rounded-xl bg-emerald-400 px-5 py-3 font-semibold text-zinc-950 transition hover:bg-emerald-300 disabled:cursor-not-allowed disabled:opacity-50">Choose Grocery Store <ChevronRight className="h-5 w-5" aria-hidden="true" /></button></div>
     {checkoutMessage ? <p className="text-center text-sm text-zinc-400" role="status">{checkoutMessage}</p> : null}
+    <ConfirmationModal
+      open={Boolean(pendingRemovalItem)}
+      title="Remove Ingredient?"
+      description="The following meals use this ingredient."
+      icon={<span aria-hidden="true">!</span>}
+      confirmText="Remove Anyway"
+      cancelText="Keep Ingredient"
+      destructive
+      onCancel={() => setPendingRemovalItem(null)}
+      onConfirm={confirmRemoval}
+    >
+      <div className="space-y-4">
+        <ul className="max-h-64 space-y-4 overflow-y-auto rounded-2xl border border-white/[0.08] bg-black/20 p-4">
+          {pendingRemovalItem?.usedIn.map((usage) => <li key={usage.mealPlanItemId} className="text-sm">
+            <p className="text-xs font-medium uppercase tracking-wide text-zinc-500">🍽 {usage.mealLabel}</p>
+            <p className="mt-1.5 font-semibold text-zinc-100">{usage.recipeName}</p>
+          </li>)}
+        </ul>
+        <p className="text-sm leading-relaxed text-zinc-400">This ingredient is used in the meals above. If you remove it, remember to replace or skip it when cooking.</p>
+      </div>
+    </ConfirmationModal>
   </div>;
 }
 
