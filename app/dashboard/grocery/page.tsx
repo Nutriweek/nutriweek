@@ -2,7 +2,7 @@ import { ShoppingBasket } from "lucide-react";
 
 import GroceryBasket, { type GroceryBasketItem } from "@/components/grocery/GroceryBasket";
 import PantrySummary from "@/components/grocery/PantrySummary";
-import { formatWeekRange } from "@/lib/meal-plans";
+import { formatWeekRange, getWeekStart } from "@/lib/meal-plans";
 import { createClient } from "@/lib/supabase/server";
 
 type GroceryItem = {
@@ -33,7 +33,10 @@ type PantryItem = {
   ingredient_id: string;
 };
 
-export default async function GroceryPage() {
+type GroceryPageProps = { searchParams: Promise<{ week?: string }> };
+
+export default async function GroceryPage({ searchParams }: GroceryPageProps) {
+  const { week } = await searchParams;
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) throw new Error("Please sign in to view your grocery basket.");
@@ -47,12 +50,18 @@ export default async function GroceryPage() {
     .maybeSingle();
   if (membershipError || !membership) throw new Error("Your household is not available yet. Please refresh and try again.");
 
+  const selectedWeekStart = week && /^\d{4}-\d{2}-\d{2}$/.test(week) ? getWeekStart(week) : null;
+  const { data: selectedPlan, error: selectedPlanError } = selectedWeekStart
+    ? await supabase.from("weekly_meal_plans").select("id").eq("household_id", membership.household_id).eq("week_start_date", selectedWeekStart).maybeSingle()
+    : await supabase.from("weekly_meal_plans").select("id").eq("household_id", membership.household_id).in("status", ["approved", "grocery_generated"]).order("week_start_date", { ascending: false }).limit(1).maybeSingle();
+  if (selectedPlanError) throw new Error("Unable to load the selected weekly plan.");
+  if (!selectedPlan) return <EmptyBasket />;
+
   const { data: groceryList, error: groceryListError } = await supabase
     .from("grocery_lists")
     .select("id, weekly_meal_plan_id, status, currency_code")
     .eq("household_id", membership.household_id)
-    .order("created_at", { ascending: false })
-    .limit(1)
+    .eq("weekly_meal_plan_id", selectedPlan.id)
     .maybeSingle();
   if (groceryListError) throw new Error("Unable to load your grocery basket.");
 
@@ -94,7 +103,7 @@ export default async function GroceryPage() {
   const mealPlanItemIds = [...new Set(sources.flatMap((source) => source.weekly_meal_plan_item_id ? [source.weekly_meal_plan_item_id] : []))];
   const recipeSourceIds = [...new Set(sources.flatMap((source) => source.recipe_id ? [source.recipe_id] : []))];
   const { data: mealPlanItems, error: mealPlanItemsError } = mealPlanItemIds.length > 0
-    ? await supabase.from("weekly_meal_plan_items").select("id, meal_date, meal_category_id, recipe_id, title").in("id", mealPlanItemIds)
+    ? await supabase.from("weekly_meal_plan_items").select("id, meal_date, meal_category_id, recipe_id, title").eq("meal_plan_id", groceryList.weekly_meal_plan_id).in("id", mealPlanItemIds)
     : { data: [], error: null };
   if (mealPlanItemsError) throw new Error("Unable to load meal usage details.");
 

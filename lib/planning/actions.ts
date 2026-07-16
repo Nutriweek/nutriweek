@@ -37,15 +37,22 @@ function dateForOffset(weekStartDate: string, offset: number) {
 export async function prepareWeeklyPlan(values: PrepareWeeklyPlanInput): Promise<PlanningActionResult> {
   const parsed = prepareWeeklyPlanSchema.safeParse(values);
   if (!parsed.success) return { success: false, message: "Choose a valid planning week." };
-  if (parsed.data.week_start_date !== getUpcomingWeekStart() && parsed.data.week_start_date !== getWeekStart()) {
+  const currentWeekStart = getWeekStart();
+  const upcomingWeekStart = getUpcomingWeekStart();
+  const isCurrentWeek = parsed.data.week_start_date === currentWeekStart;
+  const isUpcomingWeek = parsed.data.week_start_date === upcomingWeekStart;
+  if (!isCurrentWeek && !isUpcomingWeek) {
     return { success: false, message: "You can only prepare the upcoming Monday–Saturday week." };
   }
 
   const availableSlotKeys = new Set(getAvailableMealSlots(parsed.data.week_start_date).map((slot) => `${slot.meal_date}:${slot.meal_category_slug}`));
   if (availableSlotKeys.size === 0) return { success: false, message: "Today's meals have finished. Prepare next week's meals." };
   const selectedSlotKeys = new Set(parsed.data.selected_meal_slots.map((slot) => `${slot.meal_date}:${slot.meal_category_slug}`));
-  if (selectedSlotKeys.size !== parsed.data.selected_meal_slots.length || [...selectedSlotKeys].some((key) => !availableSlotKeys.has(key))) {
+  if (isCurrentWeek && (selectedSlotKeys.size !== parsed.data.selected_meal_slots.length || [...selectedSlotKeys].some((key) => !availableSlotKeys.has(key)))) {
     return { success: false, message: "Choose only remaining meal slots for this week." };
+  }
+  if (isUpcomingWeek && (selectedSlotKeys.size !== parsed.data.selected_meal_slots.length || [...selectedSlotKeys].some((key) => !availableSlotKeys.has(key)))) {
+    return { success: false, message: "Choose valid Monday-Saturday meal slots for next week." };
   }
 
   const { supabase, user, householdId } = await getPlanningContext();

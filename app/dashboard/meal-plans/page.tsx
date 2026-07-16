@@ -17,5 +17,5 @@ export default async function MealPlansPage({ searchParams }: MealPlansPageProps
     throw new Error("Your household is not available yet. Please refresh the page and try again.");
   }
 
-  return <MealPlanEditor weekStartDate={weekStartDate} availableMealSlots={getAvailableMealSlots(weekStartDate)} {...data} />;
+  return <MealPlanEditor key={weekStartDate} weekStartDate={weekStartDate} availableMealSlots={getAvailableMealSlots(weekStartDate)} {...data} />;
 }
