@@ -8,9 +8,11 @@ import { useMemo, useState } from "react";
 import { Controller, useForm, useWatch } from "react-hook-form";
 
 import ProfileField from "@/components/profile/ProfileField";
+import MealPreparationScreen from "@/components/meal-plans/MealPreparationScreen";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { addMealPlanItem } from "@/lib/meal-plans/actions";
-import { formatWeekRange, getUpcomingWeekStart, getWeekEnd, shiftWeek } from "@/lib/meal-plans/constants";
+import { formatWeekRange, getUpcomingWeekStart, getWeekEnd, getWeekStart, shiftWeek } from "@/lib/meal-plans/constants";
+import type { MealSlotSelection } from "@/lib/meal-plans/constants";
 import { addMealPlanItemSchema, type AddMealPlanItemInput } from "@/lib/meal-plans/schemas";
 import { DEFAULT_WEEKLY_PREFERENCE, WEEKLY_PREFERENCES, WEEKLY_PREFERENCE_VALUES, type WeeklyPreference } from "@/lib/planning/weekly-preferences";
 import type { MealCategory, MealSlotType, PlannedMealItem, Recipe, WeeklyMealPlan } from "@/lib/meal-plans/types";
@@ -18,6 +20,7 @@ import { approveWeeklyPlan, prepareWeeklyPlan } from "@/lib/planning/actions";
 
 type MealPlanEditorProps = {
   weekStartDate: string;
+  availableMealSlots: MealSlotSelection[];
   plan: WeeklyMealPlan | null;
   items: PlannedMealItem[];
   mealCategories: MealCategory[];
@@ -35,11 +38,29 @@ function getWeeklyPreference(generationContext: unknown): WeeklyPreference {
   return DEFAULT_WEEKLY_PREFERENCE;
 }
 
-export default function MealPlanEditor({ weekStartDate, plan, items, mealCategories, mealSlotTypes, recipes }: MealPlanEditorProps) {
+function getSelectedMealSlots(generationContext: unknown, availableSlots: MealSlotSelection[]) {
+  if (!generationContext || typeof generationContext !== "object" || Array.isArray(generationContext)) return availableSlots;
+  const savedSlots = (generationContext as Record<string, unknown>).selected_meal_slots;
+  if (!Array.isArray(savedSlots)) return availableSlots;
+  const allowed = new Set(availableSlots.map((slot) => `${slot.meal_date}:${slot.meal_category_slug}`));
+  const selected = savedSlots.flatMap((slot) => {
+    if (!slot || typeof slot !== "object") return [];
+    const value = slot as Record<string, unknown>;
+    const meal_date = value.meal_date;
+    const meal_category_slug = value.meal_category_slug;
+    if (typeof meal_date !== "string" || !["breakfast", "lunch", "dinner"].includes(String(meal_category_slug))) return [];
+    const selectedSlot = { meal_date, meal_category_slug: meal_category_slug as MealSlotSelection["meal_category_slug"] };
+    return allowed.has(`${selectedSlot.meal_date}:${selectedSlot.meal_category_slug}`) ? [selectedSlot] : [];
+  });
+  return selected.length ? selected : availableSlots;
+}
+
+export default function MealPlanEditor({ weekStartDate, availableMealSlots, plan, items, mealCategories, mealSlotTypes, recipes }: MealPlanEditorProps) {
   const router = useRouter();
   const [createMessage, setCreateMessage] = useState<{ type: "error" | "success"; text: string } | null>(null);
   const [isCreating, setIsCreating] = useState(false);
   const [isApproving, setIsApproving] = useState(false);
+  const [isPreparing, setIsPreparing] = useState(!plan);
   const [itemMessage, setItemMessage] = useState<{ type: "error" | "success"; text: string } | null>(null);
   const [weeklyPreference, setWeeklyPreference] = useState<WeeklyPreference>(() => getWeeklyPreference(plan?.generation_context));
   const { register, control, handleSubmit, reset, formState: { errors, isSubmitting } } = useForm<AddMealPlanItemInput>({
@@ -51,14 +72,17 @@ export default function MealPlanEditor({ weekStartDate, plan, items, mealCategor
   const groupedItems = useMemo(() => items.reduce<Record<string, PlannedMealItem[]>>((groups, item) => ({ ...groups, [item.meal_date]: [...(groups[item.meal_date] ?? []), item] }), {}), [items]);
   const canNavigateNext = weekStartDate !== getUpcomingWeekStart();
 
-  async function handleCreatePlan() {
+  async function generateSelectedPlan(preference: WeeklyPreference, selectedSlots: MealSlotSelection[]) {
     setCreateMessage(null);
+    setWeeklyPreference(preference);
     setIsCreating(true);
-    const result = await prepareWeeklyPlan({ week_start_date: weekStartDate, weekly_preference: weeklyPreference });
+    const result = await prepareWeeklyPlan({ week_start_date: weekStartDate, weekly_preference: preference, selected_meal_slots: selectedSlots });
     setIsCreating(false);
     setCreateMessage({ type: result.success ? "success" : "error", text: result.message });
-    if (result.success) router.refresh();
+    if (result.success) { setIsPreparing(false); router.refresh(); }
   }
+
+  function handleCreatePlan() { if (plan) setIsPreparing(true); }
 
   async function handleApprovePlan() {
     if (!plan) return;
@@ -79,6 +103,8 @@ export default function MealPlanEditor({ weekStartDate, plan, items, mealCategor
       router.refresh();
     }
   }
+
+  if (isPreparing) return <MealPreparationScreen slots={availableMealSlots} initialSlots={getSelectedMealSlots(plan?.generation_context, availableMealSlots)} categoryLabels={Object.fromEntries(mealCategories.map((category) => [category.slug, category.name]))} allowSlotSelection={weekStartDate === getWeekStart()} initialPreference={weeklyPreference} isGenerating={isCreating} message={createMessage} onGenerate={generateSelectedPlan} />;
 
   return <div className="space-y-6">
     <div className="flex flex-col gap-4 rounded-3xl border border-white/[0.08] bg-white/[0.04] p-5 backdrop-blur-xl sm:flex-row sm:items-center sm:justify-between sm:p-6">

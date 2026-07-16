@@ -5,7 +5,7 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import type { Json, Tables } from "@/lib/supabase/database.types";
 
-import { getUpcomingWeekStart, getWeekEnd } from "@/lib/meal-plans/constants";
+import { getAvailableMealSlots, getUpcomingWeekStart, getWeekEnd, getWeekStart } from "@/lib/meal-plans/constants";
 
 import { approveWeeklyPlanSchema, prepareWeeklyPlanSchema, type ApproveWeeklyPlanInput, type PrepareWeeklyPlanInput } from "./schemas";
 import { getPreferenceScore, isIndulgentRecipe } from "./preference-scoring";
@@ -37,8 +37,15 @@ function dateForOffset(weekStartDate: string, offset: number) {
 export async function prepareWeeklyPlan(values: PrepareWeeklyPlanInput): Promise<PlanningActionResult> {
   const parsed = prepareWeeklyPlanSchema.safeParse(values);
   if (!parsed.success) return { success: false, message: "Choose a valid planning week." };
-  if (parsed.data.week_start_date !== getUpcomingWeekStart()) {
+  if (parsed.data.week_start_date !== getUpcomingWeekStart() && parsed.data.week_start_date !== getWeekStart()) {
     return { success: false, message: "You can only prepare the upcoming Monday–Saturday week." };
+  }
+
+  const availableSlotKeys = new Set(getAvailableMealSlots(parsed.data.week_start_date).map((slot) => `${slot.meal_date}:${slot.meal_category_slug}`));
+  if (availableSlotKeys.size === 0) return { success: false, message: "Today's meals have finished. Prepare next week's meals." };
+  const selectedSlotKeys = new Set(parsed.data.selected_meal_slots.map((slot) => `${slot.meal_date}:${slot.meal_category_slug}`));
+  if (selectedSlotKeys.size !== parsed.data.selected_meal_slots.length || [...selectedSlotKeys].some((key) => !availableSlotKeys.has(key))) {
+    return { success: false, message: "Choose only remaining meal slots for this week." };
   }
 
   const { supabase, user, householdId } = await getPlanningContext();
@@ -142,7 +149,7 @@ export async function prepareWeeklyPlan(values: PrepareWeeklyPlanInput): Promise
   if (eligibleRecipes.length === 0) return { success: false, message: "No recipes match your current diet, allergy, and kitchen equipment constraints." };
 
   const { data: plan, error: planError } = await supabase.from("weekly_meal_plans").upsert(
-    { household_id: householdId, week_start_date: parsed.data.week_start_date, status: "draft", generation_source: "deterministic", generation_context: { weekly_preference: parsed.data.weekly_preference } },
+    { household_id: householdId, week_start_date: parsed.data.week_start_date, status: "draft", generation_source: "deterministic", generation_context: { weekly_preference: parsed.data.weekly_preference, selected_meal_slots: parsed.data.selected_meal_slots } },
     { onConflict: "household_id,week_start_date" },
   ).select("id").single();
   if (planError || !plan) return { success: false, message: "We could not prepare this weekly plan." };
@@ -154,7 +161,9 @@ export async function prepareWeeklyPlan(values: PrepareWeeklyPlanInput): Promise
   const usedRecipeIds = new Set<string>();
   for (let day = 0; day < 6; day += 1) {
     if (preferences?.weekly_cooking_holiday === day) continue;
+    const mealDate = dateForOffset(parsed.data.week_start_date, day);
     for (const category of categories) {
+      if (!selectedSlotKeys.has(`${mealDate}:${category.slug}`)) continue;
       const categoryRecipeIds = recipeIdsByMealCategory.get(category.id);
       const matchedCategoryRecipes = categoryRecipeIds ? eligibleRecipes.filter((recipe) => categoryRecipeIds.has(recipe.id)) : [];
       const categoryRecipes = matchedCategoryRecipes.length > 0 ? matchedCategoryRecipes : eligibleRecipes;
@@ -163,7 +172,7 @@ export async function prepareWeeklyPlan(values: PrepareWeeklyPlanInput): Promise
       recipeIndex += 1;
       usedRecipeIds.add(recipe.id);
       if (parsed.data.weekly_preference === "cheat_week" && isIndulgentRecipe({ recipe, tagSlugs: tagSlugsByRecipe.get(recipe.id) ?? [] })) cheatMealCount += 1;
-      items.push({ household_id: householdId, meal_plan_id: plan.id, meal_date: dateForOffset(parsed.data.week_start_date, day), meal_category_id: category.id, meal_slot_type_id: slotTypes.id, recipe_id: recipe.id, servings: recipe.servings, slot_index: 0 });
+      items.push({ household_id: householdId, meal_plan_id: plan.id, meal_date: mealDate, meal_category_id: category.id, meal_slot_type_id: slotTypes.id, recipe_id: recipe.id, servings: recipe.servings, slot_index: 0 });
     }
   }
   const { data: savedItems, error: itemsError } = await supabase.from("weekly_meal_plan_items").insert(items).select("id, recipe_id, meal_category_id");
