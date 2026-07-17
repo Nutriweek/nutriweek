@@ -178,7 +178,7 @@ export default async function GroceryPage({ searchParams }: GroceryPageProps) {
       <dl className="grid grid-cols-3 gap-3 text-left sm:min-w-[28rem]"><SummaryItem label="Week" value={weekRange} /><SummaryItem label="Meals planned" value={mealCount === null ? "—" : String(mealCount)} /><SummaryItem label="Estimated cost" value={hasEstimatedBasketCost ? currencyFormatter.format(estimatedBasketCost) : "—"} /></dl>
     </div>
     <PantrySummary items={pantrySummaryItems} />
-    {basketItems.length === 0 ? <div className="rounded-3xl border border-white/[0.08] bg-white/[0.04] p-5 sm:p-7"><p className="rounded-xl border border-dashed border-white/10 px-4 py-8 text-center text-sm text-zinc-500">This approved week does not need any additional grocery items.</p></div> : <GroceryBasket currency={currency} items={basketItems} />}
+    {basketItems.length === 0 ? <div className="rounded-3xl border border-white/[0.08] bg-white/[0.04] p-5 sm:p-7"><p className="rounded-xl border border-dashed border-white/10 px-4 py-8 text-center text-sm text-zinc-500">This approved week does not need any additional grocery items.</p></div> : <GroceryBasket groceryListId={groceryList.id} currency={currency} items={basketItems} />}
   </section>;
 }
 

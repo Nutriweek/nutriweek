@@ -1,3 +1,5 @@
+"use client";
+
 import {
   BarChart3,
   CalendarDays,
@@ -9,6 +11,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 
 type NavigationItem = {
   label: string;
@@ -27,6 +30,7 @@ const navigationItems: NavigationItem[] = [
 ];
 
 function NavigationItems({ mobile = false }: { mobile?: boolean }) {
+  const pathname = usePathname();
   return navigationItems.map((item) => {
     const Icon = item.icon;
     const className = mobile
@@ -34,13 +38,14 @@ function NavigationItems({ mobile = false }: { mobile?: boolean }) {
       : "flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium";
 
     if (item.href) {
+      const isActive = item.href === "/dashboard" ? pathname === item.href : pathname === item.href || pathname.startsWith(`${item.href}/`);
       return (
         <Link
           key={item.label}
           href={item.href}
-          aria-current={item.href === "/dashboard" ? "page" : undefined}
+          aria-current={isActive ? "page" : undefined}
           className={`${className} ${
-            item.href === "/dashboard"
+            isActive
               ? "bg-emerald-500/10 text-emerald-300"
               : "text-zinc-400 transition hover:bg-white/[0.05] hover:text-white"
           }`}

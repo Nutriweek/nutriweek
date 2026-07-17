@@ -22,6 +22,7 @@ export type GroceryBasketItem = {
 };
 
 type GroceryBasketProps = {
+  groceryListId: string;
   currency: string;
   items: GroceryBasketItem[];
 };
@@ -32,9 +33,9 @@ const providers = [
   { name: "Instamart", deliveryTime: "~30 mins" },
 ];
 
-export default function GroceryBasket({ currency, items }: GroceryBasketProps) {
+export default function GroceryBasket({ groceryListId, currency, items }: GroceryBasketProps) {
   const router = useRouter();
-  const [selectedItemIds, setSelectedItemIds] = useState(() => new Set(items.map((item) => item.id)));
+  const [selectedItemIdsByList, setSelectedItemIdsByList] = useState(() => new Map<string, Set<string>>());
   const [expandedItemIds, setExpandedItemIds] = useState(() => new Set<string>());
   const [pendingRemovalItem, setPendingRemovalItem] = useState<GroceryBasketItem | null>(null);
   const [removalReason, setRemovalReason] = useState<"already_have" | "dont_need">("already_have");
@@ -44,10 +45,21 @@ export default function GroceryBasket({ currency, items }: GroceryBasketProps) {
     () => new Intl.NumberFormat("en-IN", { style: "currency", currency, maximumFractionDigits: 2 }),
     [currency],
   );
+  const selectedItemIds = selectedItemIdsByList.get(groceryListId) ?? new Set(items.map((item) => item.id));
   const selectedItems = items.filter((item) => selectedItemIds.has(item.id));
   const estimatedCost = selectedItems.reduce((total, item) => total + (item.estimatedCost ?? 0), 0);
   const hasEstimatedCost = selectedItems.some((item) => item.estimatedCost !== null);
   const estimatedCostLabel = hasEstimatedCost ? currencyFormatter.format(estimatedCost) : "-";
+
+  function updateSelectedItemIds(update: (selectedItemIds: Set<string>) => void) {
+    setSelectedItemIdsByList((current) => {
+      const next = new Map(current);
+      const selectedForList = new Set(next.get(groceryListId) ?? items.map((item) => item.id));
+      update(selectedForList);
+      next.set(groceryListId, selectedForList);
+      return next;
+    });
+  }
 
   function toggleItem(item: GroceryBasketItem) {
     setCheckoutMessage(null);
@@ -57,20 +69,14 @@ export default function GroceryBasket({ currency, items }: GroceryBasketProps) {
       return;
     }
 
-    setSelectedItemIds((current) => {
-      const next = new Set(current);
-      if (next.has(item.id)) next.delete(item.id);
-      else next.add(item.id);
-      return next;
+    updateSelectedItemIds((selectedForList) => {
+      if (selectedForList.has(item.id)) selectedForList.delete(item.id);
+      else selectedForList.add(item.id);
     });
   }
 
   function removeSelectedItem(item: GroceryBasketItem) {
-    setSelectedItemIds((current) => {
-      const next = new Set(current);
-      next.delete(item.id);
-      return next;
-    });
+    updateSelectedItemIds((selectedForList) => selectedForList.delete(item.id));
   }
 
   function confirmRemoval() {
