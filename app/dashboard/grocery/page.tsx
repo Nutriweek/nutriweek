@@ -1,8 +1,10 @@
 import { ShoppingBasket } from "lucide-react";
+import Link from "next/link";
+import type { ReactNode } from "react";
 
 import GroceryBasket, { type GroceryBasketItem } from "@/components/grocery/GroceryBasket";
 import PantrySummary from "@/components/grocery/PantrySummary";
-import { formatWeekRange, getWeekStart } from "@/lib/meal-plans";
+import { formatWeekRange, getUpcomingWeekStart, getWeekStart } from "@/lib/meal-plans";
 import { createClient } from "@/lib/supabase/server";
 
 type GroceryItem = {
@@ -50,15 +52,16 @@ export default async function GroceryPage({ searchParams }: GroceryPageProps) {
     .maybeSingle();
   if (membershipError || !membership) throw new Error("Your household is not available yet. Please refresh and try again.");
 
-  const selectedWeekStart = week && /^\d{4}-\d{2}-\d{2}$/.test(week) ? getWeekStart(week) : getWeekStart();
-  const { data: selectedPlan, error: selectedPlanError } = await supabase
-    .from("weekly_meal_plans")
-    .select("id")
-    .eq("household_id", membership.household_id)
-    .eq("week_start_date", selectedWeekStart)
-    .maybeSingle();
-  if (selectedPlanError) throw new Error("Unable to load the selected weekly plan.");
-  if (!selectedPlan) return <EmptyBasket />;
+  const currentWeekStart = getWeekStart();
+  const nextWeekStart = getUpcomingWeekStart();
+  const selectedWeekStart = week && /^\d{4}-\d{2}-\d{2}$/.test(week) ? getWeekStart(week) : currentWeekStart;
+  const [{ data: selectedPlan, error: selectedPlanError }, { data: nextWeekPlan, error: nextWeekPlanError }] = await Promise.all([
+    supabase.from("weekly_meal_plans").select("id").eq("household_id", membership.household_id).eq("week_start_date", selectedWeekStart).maybeSingle(),
+    supabase.from("weekly_meal_plans").select("id").eq("household_id", membership.household_id).eq("week_start_date", nextWeekStart).in("status", ["approved", "grocery_generated"]).maybeSingle(),
+  ]);
+  if (selectedPlanError || nextWeekPlanError) throw new Error("Unable to load the selected weekly plan.");
+  const weekSelector = <GroceryWeekSelector currentWeekStart={currentWeekStart} nextWeekStart={nextWeekStart} selectedWeekStart={selectedWeekStart} hasNextWeekPlan={Boolean(nextWeekPlan)} />;
+  if (!selectedPlan) return <EmptyBasket weekSelector={weekSelector} />;
 
   const { data: groceryList, error: groceryListError } = await supabase
     .from("grocery_lists")
@@ -69,7 +72,7 @@ export default async function GroceryPage({ searchParams }: GroceryPageProps) {
   if (groceryListError) throw new Error("Unable to load your grocery basket.");
 
   if (!groceryList) {
-    return <EmptyBasket />;
+    return <EmptyBasket weekSelector={weekSelector} />;
   }
 
   const [{ data: plan, error: planError }, { data: items, error: itemsError }, { count: mealCount, error: mealCountError }, { data: pantryItems, error: pantryItemsError }] = await Promise.all([
@@ -171,7 +174,7 @@ export default async function GroceryPage({ searchParams }: GroceryPageProps) {
 
   return <section className="space-y-6" aria-labelledby="grocery-heading">
     <div className="flex flex-col gap-4 rounded-3xl border border-white/[0.08] bg-white/[0.04] p-6 backdrop-blur-xl sm:flex-row sm:items-center sm:justify-between">
-      <div><p className="text-sm font-medium uppercase tracking-widest text-emerald-400/80">Approved meal plan</p><h1 id="grocery-heading" className="mt-2 text-3xl font-semibold tracking-tight text-white">Grocery basket</h1><p className="mt-2 text-sm text-zinc-400">Ingredients needed for the week starting {weekLabel}, adjusted for your pantry.</p></div>
+      <div><p className="text-sm font-medium uppercase tracking-widest text-emerald-400/80">Approved meal plan</p><h1 id="grocery-heading" className="mt-2 text-3xl font-semibold tracking-tight text-white">Grocery basket</h1><p className="mt-2 text-sm text-zinc-400">Ingredients needed for the week starting {weekLabel}, adjusted for your pantry.</p><div className="mt-4">{weekSelector}</div></div>
       <dl className="grid grid-cols-3 gap-3 text-left sm:min-w-[28rem]"><SummaryItem label="Week" value={weekRange} /><SummaryItem label="Meals planned" value={mealCount === null ? "—" : String(mealCount)} /><SummaryItem label="Estimated cost" value={hasEstimatedBasketCost ? currencyFormatter.format(estimatedBasketCost) : "—"} /></dl>
     </div>
     <PantrySummary items={pantrySummaryItems} />
@@ -183,6 +186,14 @@ function SummaryItem({ label, value }: { label: string; value: string }) {
   return <div className="rounded-xl border border-white/[0.08] bg-black/10 p-3"><dt className="text-xs text-zinc-500">{label}</dt><dd className="mt-1 text-sm font-semibold text-white">{value}</dd></div>;
 }
 
-function EmptyBasket() {
-  return <section className="flex min-h-[50vh] items-center justify-center" aria-labelledby="grocery-heading"><div className="w-full max-w-xl rounded-3xl border border-white/[0.08] bg-white/[0.04] p-8 text-center backdrop-blur-xl sm:p-10"><ShoppingBasket className="mx-auto h-10 w-10 text-emerald-400" aria-hidden="true" /><h1 id="grocery-heading" className="mt-4 text-3xl font-semibold tracking-tight text-white">No grocery basket yet</h1><p className="mx-auto mt-4 max-w-md leading-relaxed text-zinc-400">Approve a review-ready weekly meal plan to generate your pantry-adjusted grocery basket.</p></div></section>;
+function GroceryWeekSelector({ currentWeekStart, nextWeekStart, selectedWeekStart, hasNextWeekPlan }: { currentWeekStart: string; nextWeekStart: string; selectedWeekStart: string; hasNextWeekPlan: boolean }) {
+  const linkClass = (active: boolean) => `inline-flex h-10 items-center justify-center rounded-xl border px-3 text-sm font-medium transition ${active ? "border-emerald-400/40 bg-emerald-500/10 text-emerald-200" : "border-white/10 bg-white/5 text-zinc-300 hover:text-white"}`;
+  return <nav className="flex items-center gap-2" aria-label="Grocery week navigation">
+    <Link href={`/dashboard/grocery?week=${currentWeekStart}`} aria-current={selectedWeekStart === currentWeekStart ? "page" : undefined} className={linkClass(selectedWeekStart === currentWeekStart)}>Current</Link>
+    {hasNextWeekPlan ? <Link href={`/dashboard/grocery?week=${nextWeekStart}`} aria-current={selectedWeekStart === nextWeekStart ? "page" : undefined} className={linkClass(selectedWeekStart === nextWeekStart)}>Next</Link> : <span aria-disabled="true" className="inline-flex h-10 cursor-not-allowed items-center justify-center rounded-xl border border-white/[0.08] bg-white/[0.02] px-3 text-sm font-medium text-zinc-600">Next</span>}
+  </nav>;
+}
+
+function EmptyBasket({ weekSelector }: { weekSelector: ReactNode }) {
+  return <section className="flex min-h-[50vh] items-center justify-center" aria-labelledby="grocery-heading"><div className="w-full max-w-xl rounded-3xl border border-white/[0.08] bg-white/[0.04] p-8 text-center backdrop-blur-xl sm:p-10"><div className="flex justify-center">{weekSelector}</div><ShoppingBasket className="mx-auto mt-6 h-10 w-10 text-emerald-400" aria-hidden="true" /><h1 id="grocery-heading" className="mt-4 text-3xl font-semibold tracking-tight text-white">No grocery basket yet</h1><p className="mx-auto mt-4 max-w-md leading-relaxed text-zinc-400">Approve a review-ready weekly meal plan to generate your pantry-adjusted grocery basket.</p></div></section>;
 }
