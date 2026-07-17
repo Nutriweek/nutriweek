@@ -50,10 +50,13 @@ export default async function GroceryPage({ searchParams }: GroceryPageProps) {
     .maybeSingle();
   if (membershipError || !membership) throw new Error("Your household is not available yet. Please refresh and try again.");
 
-  const selectedWeekStart = week && /^\d{4}-\d{2}-\d{2}$/.test(week) ? getWeekStart(week) : null;
-  const { data: selectedPlan, error: selectedPlanError } = selectedWeekStart
-    ? await supabase.from("weekly_meal_plans").select("id").eq("household_id", membership.household_id).eq("week_start_date", selectedWeekStart).maybeSingle()
-    : await supabase.from("weekly_meal_plans").select("id").eq("household_id", membership.household_id).in("status", ["approved", "grocery_generated"]).order("week_start_date", { ascending: false }).limit(1).maybeSingle();
+  const selectedWeekStart = week && /^\d{4}-\d{2}-\d{2}$/.test(week) ? getWeekStart(week) : getWeekStart();
+  const { data: selectedPlan, error: selectedPlanError } = await supabase
+    .from("weekly_meal_plans")
+    .select("id")
+    .eq("household_id", membership.household_id)
+    .eq("week_start_date", selectedWeekStart)
+    .maybeSingle();
   if (selectedPlanError) throw new Error("Unable to load the selected weekly plan.");
   if (!selectedPlan) return <EmptyBasket />;
 

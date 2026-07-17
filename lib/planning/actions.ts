@@ -29,8 +29,8 @@ async function getPlanningContext() {
 }
 
 function dateForOffset(weekStartDate: string, offset: number) {
-  const date = new Date(`${weekStartDate}T00:00:00`);
-  date.setDate(date.getDate() + offset);
+  const date = new Date(`${weekStartDate}T00:00:00.000Z`);
+  date.setUTCDate(date.getUTCDate() + offset);
   return date.toISOString().slice(0, 10);
 }
 
