@@ -112,12 +112,12 @@ export async function addMealPlanItem(values: AddMealPlanItemInput): Promise<Mea
   }
 
   const [{ data: category }, { data: recipeSlotType }] = await Promise.all([
-    supabase.from("meal_categories").select("id, slug").eq("id", parsedValues.data.meal_category_id).in("slug", ["snacks", "desserts"]).maybeSingle(),
+    supabase.from("meal_categories").select("id, slug, name").eq("id", parsedValues.data.meal_category_id).in("slug", ["breakfast", "lunch", "dinner", "snacks", "desserts"]).maybeSingle(),
     supabase.from("meal_slot_types").select("id").eq("slug", "recipe").maybeSingle(),
   ]);
 
   if (!category || !recipeSlotType) {
-    return { success: false, message: "Choose Snack or Dessert for an extra recipe meal." };
+    return { success: false, message: "Choose a supported meal category for this recipe meal." };
   }
 
   const [{ data: recipe }, { data: recipeCategory }] = await Promise.all([
@@ -125,7 +125,7 @@ export async function addMealPlanItem(values: AddMealPlanItemInput): Promise<Mea
     supabase.from("recipe_meal_categories").select("recipe_id").eq("recipe_id", parsedValues.data.recipe_id).eq("meal_category_id", category.id).maybeSingle(),
   ]);
   if (!recipe || !recipeCategory) {
-    return { success: false, message: `Choose a recipe compatible with ${category.slug === "snacks" ? "Snack" : "Dessert"}.` };
+    return { success: false, message: `Choose a recipe compatible with ${category.name}.` };
   }
 
   const { data: existingItems, error: existingItemsError } = await supabase
