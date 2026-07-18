@@ -139,6 +139,10 @@ export async function addMealPlanItem(values: AddMealPlanItemInput): Promise<Mea
     return { success: false, message: "We could not add this meal slot. Please try again." };
   }
 
+  if (["breakfast", "lunch", "dinner"].includes(category.slug) && (existingItems?.length ?? 0) > 0) {
+    return { success: false, message: `A ${category.name.toLowerCase()} is already planned for this date.` };
+  }
+
   const duplicateItem = existingItems?.find((item) => item.recipe_id === parsedValues.data.recipe_id);
   if (duplicateItem) {
     // A source-rebuild failure from an earlier request can leave an otherwise
