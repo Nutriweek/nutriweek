@@ -68,8 +68,21 @@ export async function getMealPlanningData(weekStartDate: string): Promise<MealPl
       mealCategories: categories as MealCategory[],
       mealSlotTypes: slotTypes as MealSlotType[],
       recipes: recipes as Pick<Recipe, "id" | "name" | "servings">[],
+      recipeMealCategoryIds: {},
     };
   }
+
+  const recipeIds = (recipes ?? []).map((recipe) => recipe.id);
+  const { data: recipeMealCategories, error: recipeMealCategoriesError } = recipeIds.length > 0
+    ? await supabase.from("recipe_meal_categories").select("recipe_id, meal_category_id").in("recipe_id", recipeIds)
+    : { data: [], error: null };
+  if (recipeMealCategoriesError) {
+    throw new Error("Unable to load recipe meal categories.");
+  }
+  const recipeMealCategoryIds = (recipeMealCategories ?? []).reduce<Record<string, string[]>>((assignments, assignment) => ({
+    ...assignments,
+    [assignment.recipe_id]: [...(assignments[assignment.recipe_id] ?? []), assignment.meal_category_id],
+  }), {});
 
   const { data: plan, error: planError } = await supabase
     .from("weekly_meal_plans")
@@ -90,6 +103,7 @@ export async function getMealPlanningData(weekStartDate: string): Promise<MealPl
       mealCategories: categories as MealCategory[],
       mealSlotTypes: slotTypes as MealSlotType[],
       recipes: recipes as Pick<Recipe, "id" | "name" | "servings">[],
+      recipeMealCategoryIds,
     };
   }
 
@@ -121,5 +135,6 @@ export async function getMealPlanningData(weekStartDate: string): Promise<MealPl
     mealCategories: categories as MealCategory[],
     mealSlotTypes: slotTypes as MealSlotType[],
     recipes: recipes as Pick<Recipe, "id" | "name" | "servings">[],
+    recipeMealCategoryIds,
   };
 }

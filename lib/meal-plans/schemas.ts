@@ -9,10 +9,8 @@ export const addMealPlanItemSchema = z.object({
   meal_plan_id: z.string().uuid(),
   meal_date: dateSchema,
   meal_category_id: z.string().uuid(),
-  meal_slot_type_id: z.string().uuid(),
-  recipe_id: z.string().uuid().or(z.literal("")),
+  recipe_id: z.string().uuid(),
   servings: z.number().finite().positive("Enter a value greater than zero.").nullable(),
-  title: optionalText,
   notes: optionalText,
 });
 
