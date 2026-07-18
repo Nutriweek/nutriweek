@@ -7,6 +7,7 @@ type DashboardModule = {
   icon: LucideIcon;
   accent: "emerald" | "cyan";
   href: string;
+  isComingSoon?: boolean;
 };
 
 const dashboardModules: DashboardModule[] = [
@@ -44,6 +45,7 @@ const dashboardModules: DashboardModule[] = [
     icon: BarChart3,
     accent: "cyan",
     href: "/dashboard/nutrition",
+    isComingSoon: true,
   },
   {
     title: "Profile",
@@ -75,7 +77,7 @@ export default function DashboardOverview() {
               </div>
               <h2 className="mt-5 text-lg font-semibold text-white">{module.title}</h2>
               <p className="mt-2 text-sm leading-relaxed text-zinc-400">{module.description}</p>
-              <span className="mt-5 inline-flex rounded-full border border-white/[0.08] bg-white/[0.03] px-2.5 py-1 text-xs font-medium text-zinc-400">Coming soon</span>
+              {module.isComingSoon ? <span className="mt-5 inline-flex rounded-full border border-white/[0.08] bg-white/[0.03] px-2.5 py-1 text-xs font-medium text-zinc-400">Coming soon</span> : null}
             </Link>
           );
         })}
