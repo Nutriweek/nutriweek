@@ -6,7 +6,7 @@ import { createClient } from "@/lib/supabase/server";
 import { approveWeeklyPlan } from "@/lib/planning/actions";
 
 import { getUpcomingWeekStart, getWeekEnd, getWeekStart } from "./constants";
-import { addMealPlanItemSchema, createWeeklyMealPlanSchema, type AddMealPlanItemInput, type CreateWeeklyMealPlanInput } from "./schemas";
+import { addMealPlanItemSchema, createWeeklyMealPlanSchema, deleteMealPlanItemSchema, type AddMealPlanItemInput, type CreateWeeklyMealPlanInput, type DeleteMealPlanItemInput } from "./schemas";
 import type { MealPlanActionResult, WeeklyMealPlanItemInsert } from "./types";
 
 async function getCurrentHouseholdId() {
@@ -196,4 +196,42 @@ export async function addMealPlanItem(values: AddMealPlanItemInput): Promise<Mea
 
   revalidatePath("/dashboard/meal-plans");
   return { success: true, message: "Meal slot added to your week." };
+}
+
+export async function deleteMealPlanItem(values: DeleteMealPlanItemInput): Promise<MealPlanActionResult> {
+  const parsedValues = deleteMealPlanItemSchema.safeParse(values);
+  if (!parsedValues.success) return { success: false, message: "This meal is no longer available." };
+
+  const { supabase, householdId } = await getCurrentHouseholdId();
+  if (!householdId) return { success: false, message: "Your household is not available yet. Please refresh and try again." };
+
+  const { data: plan, error: planError } = await supabase.from("weekly_meal_plans").select("id, status").eq("id", parsedValues.data.meal_plan_id).eq("household_id", householdId).maybeSingle();
+  console.error("PLAN", { data: plan, error: planError });
+  if (planError || !plan) return { success: false, message: "This weekly plan is no longer available." };
+
+  const { data: mealItem, error: mealItemError } = await supabase.from("weekly_meal_plan_items").select("id").eq("id", parsedValues.data.meal_plan_item_id).eq("meal_plan_id", plan.id).eq("household_id", householdId).maybeSingle();
+  console.error("MEAL ITEM", { data: mealItem, error: mealItemError });
+  if (mealItemError || !mealItem) return { success: false, message: "This meal is no longer available." };
+
+  const { error: sourceDeleteError } = await supabase.from("grocery_list_item_sources").delete().eq("weekly_meal_plan_item_id", mealItem.id);
+  if (sourceDeleteError) return { success: false, message: "We could not remove this meal's grocery sources. Please try again." };
+
+  const { error: deleteError } = await supabase.from("weekly_meal_plan_items").delete().eq("id", mealItem.id).eq("meal_plan_id", plan.id);
+  console.error("DELETE", { error: deleteError });
+  if (deleteError) return { success: false, message: "We could not remove this meal. Please try again." };
+
+  if (["approved", "grocery_generated"].includes(plan.status)) {
+    let groceryResult = await approveWeeklyPlan({ meal_plan_id: plan.id });
+    if (!groceryResult.success) groceryResult = await approveWeeklyPlan({ meal_plan_id: plan.id });
+    if (!groceryResult.success) {
+      revalidatePath("/dashboard/meal-plans");
+      return { success: false, message: "Meal removed, but we could not update its grocery basket. Please try again." };
+    }
+    revalidatePath("/dashboard/grocery");
+    revalidatePath("/dashboard/meal-plans");
+    return { success: true, message: "Meal removed. Grocery basket updated." };
+  }
+
+  revalidatePath("/dashboard/meal-plans");
+  return { success: true, message: "Meal removed." };
 }

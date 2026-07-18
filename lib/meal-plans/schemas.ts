@@ -14,5 +14,11 @@ export const addMealPlanItemSchema = z.object({
   notes: optionalText,
 });
 
+export const deleteMealPlanItemSchema = z.object({
+  meal_plan_id: z.string().uuid(),
+  meal_plan_item_id: z.string().uuid(),
+});
+
 export type CreateWeeklyMealPlanInput = z.infer<typeof createWeeklyMealPlanSchema>;
 export type AddMealPlanItemInput = z.infer<typeof addMealPlanItemSchema>;
+export type DeleteMealPlanItemInput = z.infer<typeof deleteMealPlanItemSchema>;
