@@ -141,6 +141,28 @@ export async function addMealPlanItem(values: AddMealPlanItemInput): Promise<Mea
   }
 
   if (existingItems?.length) {
+    // A source-rebuild failure from an earlier request can leave an otherwise
+    // valid manual item without sources. Once the database policy fix is in
+    // place, retrying the exact request repairs that state instead of creating
+    // a second slot.
+    if (["approved", "grocery_generated"].includes(plan.status)) {
+      const [{ count: recipeIngredientCount, error: recipeIngredientError }, { count: sourceCount, error: sourceCountError }] = await Promise.all([
+        supabase.from("recipe_ingredients").select("ingredient_id", { count: "exact", head: true }).eq("recipe_id", parsedValues.data.recipe_id),
+        supabase.from("grocery_list_item_sources").select("grocery_list_item_id", { count: "exact", head: true }).eq("weekly_meal_plan_item_id", existingItems[0].id),
+      ]);
+      if (recipeIngredientError || sourceCountError) {
+        return { success: false, message: "We could not check this meal slot's grocery basket. Please try again." };
+      }
+      if ((recipeIngredientCount ?? 0) > 0 && (sourceCount ?? 0) === 0) {
+        const groceryResult = await approveWeeklyPlan({ meal_plan_id: plan.id });
+        if (groceryResult.success) {
+          revalidatePath("/dashboard/grocery");
+          revalidatePath("/dashboard/meal-plans");
+          return { success: true, message: "Meal already exists. Your grocery basket has been updated." };
+        }
+        return { success: false, message: "This meal already exists, but we could not update its grocery basket. Please try again." };
+      }
+    }
     return { success: false, message: "A meal of this category is already planned for this date." };
   }
   const item: WeeklyMealPlanItemInsert = {

@@ -347,8 +347,12 @@ export async function approveWeeklyPlan(values: ApproveWeeklyPlanInput): Promise
     if (error) return { success: false, message: "Week approved, but we could not finalize the grocery basket." };
   }
 
-  const { error: planUpdateError } = await supabase.from("weekly_meal_plans").update({ status: "grocery_generated" }).eq("id", plan.id);
-  if (planUpdateError) return { success: false, message: "The grocery basket is ready, but we could not update the weekly plan." };
+  // A refresh of an already-generated basket must not perform a redundant plan
+  // update after the list and sources have been successfully rebuilt.
+  if (plan.status !== "grocery_generated") {
+    const { error: planUpdateError } = await supabase.from("weekly_meal_plans").update({ status: "grocery_generated" }).eq("id", plan.id);
+    if (planUpdateError) return { success: false, message: "The grocery basket is ready, but we could not update the weekly plan." };
+  }
   revalidatePath("/dashboard/meal-plans");
   return { success: true, message: "Week approved. Your pantry-adjusted grocery basket is ready." };
 }
