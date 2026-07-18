@@ -300,6 +300,13 @@ export async function approveWeeklyPlan(values: ApproveWeeklyPlanInput): Promise
       const existing = existingByIngredient.get(ingredientId);
       const manualAdjustment = existing?.manual_adjustment_quantity_base ?? 0;
       const effective = Math.max(0, generated + manualAdjustment);
+      if (effective <= 0) {
+        if (existing) {
+          const { error } = await supabase.from("grocery_list_items").delete().eq("id", existing.id);
+          if (error) return { success: false, message: "Week approved, but we could not remove an empty grocery item." };
+        }
+        continue;
+      }
       const unitCost = ingredientCost.get(ingredientId) ?? null;
       const totalCost = unitCost === null ? null : unitCost * effective;
       if (!existing?.is_removed && totalCost !== null) total += totalCost;
@@ -311,11 +318,8 @@ export async function approveWeeklyPlan(values: ApproveWeeklyPlanInput): Promise
     }
     for (const existing of existingItems ?? []) {
       if (!existing.ingredient_id || required.has(existing.ingredient_id)) continue;
-      const effective = Math.max(0, existing.manual_adjustment_quantity_base);
-      const totalCost = existing.estimated_unit_cost === null ? null : existing.estimated_unit_cost * effective;
-      if (!existing.is_removed && totalCost !== null) total += totalCost;
-      const { error } = await supabase.from("grocery_list_items").update({ generated_quantity_base: 0, effective_quantity_base: effective, estimated_total_cost: totalCost }).eq("id", existing.id);
-      if (error) return { success: false, message: "Week approved, but we could not update its grocery items." };
+      const { error } = await supabase.from("grocery_list_items").delete().eq("id", existing.id);
+      if (error) return { success: false, message: "Week approved, but we could not remove an unused grocery item." };
     }
     const { data: refreshedItems, error: refreshedItemsError } = await supabase.from("grocery_list_items").select("id, ingredient_id").eq("grocery_list_id", groceryList.id).eq("is_custom", false);
     if (refreshedItemsError) return { success: false, message: "Week approved, but we could not refresh grocery items." };
@@ -338,10 +342,8 @@ export async function approveWeeklyPlan(values: ApproveWeeklyPlanInput): Promise
     if (ids.length > 0) {
       const { error: sourcesError } = await supabase.from("grocery_list_item_sources").delete().in("grocery_list_item_id", ids);
       if (sourcesError) return { success: false, message: "Week approved, but we could not refresh grocery item sources." };
-      for (const item of existingItems ?? []) {
-        const { error } = await supabase.from("grocery_list_items").update({ generated_quantity_base: 0, effective_quantity_base: Math.max(0, item.manual_adjustment_quantity_base), estimated_total_cost: null }).eq("id", item.id);
-        if (error) return { success: false, message: "Week approved, but we could not update its grocery items." };
-      }
+      const { error } = await supabase.from("grocery_list_items").delete().in("id", ids);
+      if (error) return { success: false, message: "Week approved, but we could not remove unused grocery items." };
     }
     const { error } = await supabase.from("grocery_lists").update({ estimated_total: 0, currency_code: "INR" }).eq("id", groceryList.id);
     if (error) return { success: false, message: "Week approved, but we could not finalize the grocery basket." };

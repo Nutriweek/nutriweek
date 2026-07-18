@@ -130,17 +130,17 @@ export async function addMealPlanItem(values: AddMealPlanItemInput): Promise<Mea
 
   const { data: existingItems, error: existingItemsError } = await supabase
     .from("weekly_meal_plan_items")
-    .select("id")
+    .select("id, recipe_id, slot_index")
     .eq("meal_plan_id", plan.id)
     .eq("meal_date", parsedValues.data.meal_date)
-    .eq("meal_category_id", parsedValues.data.meal_category_id)
-    .limit(1);
+    .eq("meal_category_id", parsedValues.data.meal_category_id);
 
   if (existingItemsError) {
     return { success: false, message: "We could not add this meal slot. Please try again." };
   }
 
-  if (existingItems?.length) {
+  const duplicateItem = existingItems?.find((item) => item.recipe_id === parsedValues.data.recipe_id);
+  if (duplicateItem) {
     // A source-rebuild failure from an earlier request can leave an otherwise
     // valid manual item without sources. Once the database policy fix is in
     // place, retrying the exact request repairs that state instead of creating
@@ -148,7 +148,7 @@ export async function addMealPlanItem(values: AddMealPlanItemInput): Promise<Mea
     if (["approved", "grocery_generated"].includes(plan.status)) {
       const [{ count: recipeIngredientCount, error: recipeIngredientError }, { count: sourceCount, error: sourceCountError }] = await Promise.all([
         supabase.from("recipe_ingredients").select("ingredient_id", { count: "exact", head: true }).eq("recipe_id", parsedValues.data.recipe_id),
-        supabase.from("grocery_list_item_sources").select("grocery_list_item_id", { count: "exact", head: true }).eq("weekly_meal_plan_item_id", existingItems[0].id),
+        supabase.from("grocery_list_item_sources").select("grocery_list_item_id", { count: "exact", head: true }).eq("weekly_meal_plan_item_id", duplicateItem.id),
       ]);
       if (recipeIngredientError || sourceCountError) {
         return { success: false, message: "We could not check this meal slot's grocery basket. Please try again." };
@@ -163,8 +163,9 @@ export async function addMealPlanItem(values: AddMealPlanItemInput): Promise<Mea
         return { success: false, message: "This meal already exists, but we could not update its grocery basket. Please try again." };
       }
     }
-    return { success: false, message: "A meal of this category is already planned for this date." };
+    return { success: false, message: "This recipe is already planned for this meal category and date." };
   }
+  const nextSlotIndex = Math.max(-1, ...(existingItems ?? []).map((item) => item.slot_index)) + 1;
   const item: WeeklyMealPlanItemInsert = {
     household_id: householdId,
     meal_plan_id: plan.id,
@@ -175,7 +176,7 @@ export async function addMealPlanItem(values: AddMealPlanItemInput): Promise<Mea
     servings: parsedValues.data.servings,
     title: null,
     notes: parsedValues.data.notes || null,
-    slot_index: 0,
+    slot_index: nextSlotIndex,
   };
 
   const { error } = await supabase.from("weekly_meal_plan_items").insert(item);
@@ -206,18 +207,15 @@ export async function deleteMealPlanItem(values: DeleteMealPlanItemInput): Promi
   if (!householdId) return { success: false, message: "Your household is not available yet. Please refresh and try again." };
 
   const { data: plan, error: planError } = await supabase.from("weekly_meal_plans").select("id, status").eq("id", parsedValues.data.meal_plan_id).eq("household_id", householdId).maybeSingle();
-  console.error("PLAN", { data: plan, error: planError });
   if (planError || !plan) return { success: false, message: "This weekly plan is no longer available." };
 
   const { data: mealItem, error: mealItemError } = await supabase.from("weekly_meal_plan_items").select("id").eq("id", parsedValues.data.meal_plan_item_id).eq("meal_plan_id", plan.id).eq("household_id", householdId).maybeSingle();
-  console.error("MEAL ITEM", { data: mealItem, error: mealItemError });
   if (mealItemError || !mealItem) return { success: false, message: "This meal is no longer available." };
 
   const { error: sourceDeleteError } = await supabase.from("grocery_list_item_sources").delete().eq("weekly_meal_plan_item_id", mealItem.id);
   if (sourceDeleteError) return { success: false, message: "We could not remove this meal's grocery sources. Please try again." };
 
   const { error: deleteError } = await supabase.from("weekly_meal_plan_items").delete().eq("id", mealItem.id).eq("meal_plan_id", plan.id);
-  console.error("DELETE", { error: deleteError });
   if (deleteError) return { success: false, message: "We could not remove this meal. Please try again." };
 
   if (["approved", "grocery_generated"].includes(plan.status)) {
