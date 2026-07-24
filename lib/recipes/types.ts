@@ -7,13 +7,13 @@ export type Cuisine = Tables<"cuisines">;
 export type Equipment = Tables<"equipment">;
 export type RecipeTag = Tables<"recipe_tags">;
 
-export type RecipeCatalogItem = Pick<Recipe, "id" | "name" | "description" | "servings" | "total_time_minutes" | "difficulty" | "estimated_cost" | "estimated_cost_currency" | "cover_image_path"> & {
+export type RecipeCatalogItem = Pick<Recipe, "id" | "name" | "description" | "servings" | "total_time_minutes" | "difficulty" | "estimated_cost" | "estimated_cost_currency" | "cover_image_path" | "source_type" | "created_by"> & {
   qualityScore: number;
   tags: Pick<RecipeTag, "id" | "name" | "slug">[];
 };
 
 export type RecipeDetails = {
-  recipe: Pick<Recipe, "id" | "name" | "description" | "cover_image_path" | "difficulty" | "prep_time_minutes" | "cook_time_minutes" | "total_time_minutes" | "servings" | "calories_kcal" | "protein_g" | "carbohydrates_g" | "fat_g" | "fiber_g" | "sugar_g" | "sodium_mg">;
+  recipe: Pick<Recipe, "id" | "name" | "description" | "cover_image_path" | "difficulty" | "prep_time_minutes" | "cook_time_minutes" | "total_time_minutes" | "servings" | "calories_kcal" | "protein_g" | "carbohydrates_g" | "fat_g" | "fiber_g" | "sugar_g" | "sodium_mg" | "source_type" | "created_by">;
   cuisine: string | null;
   mealCategories: string[];
   tags: Pick<RecipeTag, "id" | "name" | "slug">[];

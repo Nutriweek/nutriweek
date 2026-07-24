@@ -1,7 +1,5 @@
-import RecipeLibrary from "@/components/recipes/RecipeLibrary";
-import { getRecipeEditorData } from "@/lib/recipes";
+import { redirect } from "next/navigation";
 
-export default async function AddRecipePage() {
-  const editorData = await getRecipeEditorData();
-  return <RecipeLibrary recipes={[]} initialSearch="" authoring {...editorData} />;
+export default function AddRecipePage() {
+  redirect("/dashboard/recipes");
 }

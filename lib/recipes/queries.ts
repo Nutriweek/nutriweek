@@ -2,11 +2,15 @@ import { createClient } from "@/lib/supabase/server";
 
 import type { RecipeCatalogItem, RecipeDetails } from "./types";
 
-export async function getRecipeCatalog(search = ""): Promise<RecipeCatalogItem[]> {
+export async function getRecipeCatalog(search = "", scope: "all" | "nutriweek" | "mine" = "all"): Promise<RecipeCatalogItem[]> {
   const supabase = await createClient();
   const term = search.trim().slice(0, 80);
 
-  const catalogQuery = supabase.from("recipes").select("id, name, description, servings, total_time_minutes, difficulty, estimated_cost, estimated_cost_currency, cover_image_path").eq("is_active", true).in("visibility", ["system", "public"]);
+  const { data: { user } } = await supabase.auth.getUser();
+  let catalogQuery = supabase.from("recipes").select("id, name, description, servings, total_time_minutes, difficulty, estimated_cost, estimated_cost_currency, cover_image_path, source_type, created_by").eq("is_active", true);
+  if (scope === "nutriweek") catalogQuery = catalogQuery.eq("source_type", "system");
+  else if (scope === "mine") catalogQuery = catalogQuery.eq("source_type", "user").eq("created_by", user?.id ?? "00000000-0000-0000-0000-000000000000");
+  else catalogQuery = catalogQuery.or(`visibility.in.(system,public),created_by.eq.${user?.id ?? "00000000-0000-0000-0000-000000000000"}`);
   const { data: recipeRows, error } = term
     ? await catalogQuery.or(`name.ilike.%${term}%,description.ilike.%${term}%`).order("name").limit(60)
     : await catalogQuery.order("name").limit(60);
@@ -43,7 +47,7 @@ export async function getRecipeEditorData() {
 
 export async function getRecipeDetails(recipeId: string): Promise<RecipeDetails | null> {
   const supabase = await createClient();
-  const { data: recipe, error: recipeError } = await supabase.from("recipes").select("id, name, description, cover_image_path, difficulty, prep_time_minutes, cook_time_minutes, total_time_minutes, servings, calories_kcal, protein_g, carbohydrates_g, fat_g, fiber_g, sugar_g, sodium_mg, primary_cuisine_id, primary_cuisine_region_id").eq("id", recipeId).eq("is_active", true).maybeSingle();
+  const { data: recipe, error: recipeError } = await supabase.from("recipes").select("id, name, description, cover_image_path, difficulty, prep_time_minutes, cook_time_minutes, total_time_minutes, servings, calories_kcal, protein_g, carbohydrates_g, fat_g, fiber_g, sugar_g, sodium_mg, source_type, created_by, primary_cuisine_id, primary_cuisine_region_id").eq("id", recipeId).eq("is_active", true).maybeSingle();
   if (recipeError) throw new Error("Unable to load this recipe.");
   if (!recipe) return null;
 

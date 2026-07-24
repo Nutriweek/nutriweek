@@ -35,7 +35,9 @@ export default function SearchableCombobox({
   const [query, setQuery] = useState("");
   const [activeIndex, setActiveIndex] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
+  const listboxRef = useRef<HTMLDivElement>(null);
   const optionRefs = useRef<Array<HTMLButtonElement | null>>([]);
+  const shouldScrollActiveOptionRef = useRef(false);
   const listboxId = useId();
 
   const selectedOption = useMemo(() => options.find((option) => option.value === value), [options, value]);
@@ -46,13 +48,22 @@ export default function SearchableCombobox({
   );
 
   useEffect(() => {
+    if (!shouldScrollActiveOptionRef.current) return;
+    shouldScrollActiveOptionRef.current = false;
     optionRefs.current[activeIndex]?.scrollIntoView({ block: "nearest" });
-  }, [activeIndex]);
+  }, [activeIndex, filteredOptions]);
+
+  useEffect(() => {
+    if (!open) return;
+    listboxRef.current?.scrollTo({ top: 0 });
+  }, [open, normalizedQuery]);
 
   function handleOpenChange(nextOpen: boolean) {
     setOpen(nextOpen);
     setQuery("");
     setActiveIndex(0);
+    shouldScrollActiveOptionRef.current = false;
+    if (nextOpen) listboxRef.current?.scrollTo({ top: 0 });
 
     if (nextOpen) requestAnimationFrame(() => inputRef.current?.focus());
   }
@@ -66,6 +77,7 @@ export default function SearchableCombobox({
     if (event.key === "ArrowDown") {
       event.preventDefault();
       if (filteredOptions.length === 0) return;
+      shouldScrollActiveOptionRef.current = true;
       setActiveIndex((index) => Math.min(index + 1, filteredOptions.length - 1));
       return;
     }
@@ -73,6 +85,7 @@ export default function SearchableCombobox({
     if (event.key === "ArrowUp") {
       event.preventDefault();
       if (filteredOptions.length === 0) return;
+      shouldScrollActiveOptionRef.current = true;
       setActiveIndex((index) => Math.max(index - 1, 0));
       return;
     }
@@ -107,9 +120,10 @@ export default function SearchableCombobox({
       </Popover.Trigger>
       <Popover.Portal>
         <Popover.Content
-          className="z-50 w-[var(--radix-popover-trigger-width)] rounded-xl border border-white/10 bg-zinc-950 p-2 shadow-2xl shadow-black/50"
+          className="z-[200] w-[var(--radix-popover-trigger-width)] rounded-xl border border-white/10 bg-zinc-950 p-2 shadow-2xl shadow-black/50"
           align="start"
           sideOffset={6}
+          collisionPadding={12}
           onOpenAutoFocus={(event) => event.preventDefault()}
         >
           <div className="relative">
@@ -121,6 +135,8 @@ export default function SearchableCombobox({
               onChange={(event) => {
                 setQuery(event.target.value);
                 setActiveIndex(0);
+                shouldScrollActiveOptionRef.current = false;
+                listboxRef.current?.scrollTo({ top: 0 });
               }}
               onKeyDown={handleInputKeyDown}
               role="combobox"
@@ -133,7 +149,7 @@ export default function SearchableCombobox({
               className="w-full rounded-lg border border-white/10 bg-white/[0.04] py-2.5 pl-9 pr-3 text-sm text-white outline-none placeholder:text-zinc-500 focus:border-emerald-400 focus:ring-2 focus:ring-emerald-400/20"
             />
           </div>
-          <div id={listboxId} role="listbox" aria-label={ariaLabel} className="mt-2 max-h-60 overflow-y-auto">
+          <div ref={listboxRef} id={listboxId} role="listbox" aria-label={ariaLabel} className="mt-2 max-h-[min(15rem,var(--radix-popover-content-available-height))] overflow-y-auto overscroll-contain">
             {filteredOptions.length === 0 ? (
               <p className="px-3 py-6 text-center text-sm text-zinc-500">{emptyMessage}</p>
             ) : (
