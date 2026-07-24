@@ -20,6 +20,7 @@ export const recipeStepSchema = z.object({
 
 export const recipeFormSchema = z.object({
   name: z.string().trim().min(2, "Recipe name is required.").max(120),
+  cover_image_path: z.string().url().nullable(),
   description: z.string().trim().max(1000).nullable(),
   primary_cuisine_id: z.string().uuid().nullable(),
   primary_cuisine_region_id: z.string().uuid().nullable(),
@@ -27,7 +28,7 @@ export const recipeFormSchema = z.object({
   tag_ids: z.array(z.string().uuid()),
   equipment_ids: z.array(z.string().uuid()),
   servings: z.number().positive().nullable(),
-  difficulty: z.enum(["beginner", "intermediate", "advanced"]).nullable(),
+  difficulty: z.enum(["easy", "medium", "hard"]).nullable(),
   prep_time_minutes: optionalNumber,
   cook_time_minutes: optionalNumber,
   calories_kcal: optionalNumber,

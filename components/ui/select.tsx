@@ -2,7 +2,7 @@
 
 import * as SelectPrimitive from "@radix-ui/react-select";
 import { Check, ChevronDown } from "lucide-react";
-import type { ComponentProps } from "react";
+import { useRef, type ComponentProps } from "react";
 
 export const Select = SelectPrimitive.Root;
 export const SelectValue = SelectPrimitive.Value;
@@ -21,16 +21,31 @@ export function SelectTrigger({ className = "", children, ...props }: ComponentP
   );
 }
 
-export function SelectContent({ className = "", children, ...props }: ComponentProps<typeof SelectPrimitive.Content>) {
+export function SelectContent({ className = "", children, onFocusCapture, onCloseAutoFocus, ...props }: ComponentProps<typeof SelectPrimitive.Content>) {
+  const hasResetViewport = useRef(false);
+
   return (
     <SelectPrimitive.Portal>
       <SelectPrimitive.Content
-        className={`z-50 overflow-hidden rounded-xl border border-white/10 bg-zinc-950 p-1 text-white shadow-2xl shadow-black/50 ${className}`}
+        className={`z-[200] overflow-hidden rounded-xl border border-white/10 bg-zinc-950 p-1 text-white shadow-2xl shadow-black/50 ${className}`}
         position="popper"
         sideOffset={6}
+        onFocusCapture={(event) => {
+          onFocusCapture?.(event);
+          if (hasResetViewport.current) return;
+          hasResetViewport.current = true;
+          requestAnimationFrame(() => {
+            const viewport = event.currentTarget.querySelector<HTMLElement>("[data-radix-select-viewport]");
+            viewport?.scrollTo({ top: 0 });
+          });
+        }}
+        onCloseAutoFocus={(event) => {
+          hasResetViewport.current = false;
+          onCloseAutoFocus?.(event);
+        }}
         {...props}
       >
-        <SelectPrimitive.Viewport>{children}</SelectPrimitive.Viewport>
+        <SelectPrimitive.Viewport className="max-h-[min(20rem,var(--radix-select-content-available-height))] overscroll-contain">{children}</SelectPrimitive.Viewport>
       </SelectPrimitive.Content>
     </SelectPrimitive.Portal>
   );
