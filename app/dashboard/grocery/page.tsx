@@ -5,7 +5,9 @@ import type { ReactNode } from "react";
 import GroceryBasket, { type GroceryBasketItem } from "@/components/grocery/GroceryBasket";
 import PantrySummary from "@/components/grocery/PantrySummary";
 import { formatWeekRange, getUpcomingWeekStart, getWeekStart } from "@/lib/meal-plans";
+import { approveWeeklyPlan } from "@/lib/planning/actions";
 import { createClient } from "@/lib/supabase/server";
+import { displayShoppingQuantity, roundShoppingQuantity } from "@/lib/grocery/roundShoppingQuantity";
 
 type GroceryItem = {
   id: string;
@@ -13,7 +15,7 @@ type GroceryItem = {
   custom_name: string | null;
   effective_quantity_base: number;
   base_unit_code: string;
-  estimated_total_cost: number | null;
+  manual_adjustment_quantity_base: number;
   is_removed: boolean;
 };
 
@@ -55,17 +57,40 @@ export default async function GroceryPage({ searchParams }: GroceryPageProps) {
   const currentWeekStart = getWeekStart();
   const nextWeekStart = getUpcomingWeekStart();
   const selectedWeekStart = week && /^\d{4}-\d{2}-\d{2}$/.test(week) ? getWeekStart(week) : currentWeekStart;
-  const [{ data: selectedPlan, error: selectedPlanError }, { data: nextWeekPlan, error: nextWeekPlanError }] = await Promise.all([
-    supabase.from("weekly_meal_plans").select("id").eq("household_id", membership.household_id).eq("week_start_date", selectedWeekStart).maybeSingle(),
+  const [{ data: expiredPlans, error: expiredPlansError }, { data: currentWeekPlan, error: currentWeekPlanError }, { data: selectedPlan, error: selectedPlanError }, { data: nextWeekPlan, error: nextWeekPlanError }] = await Promise.all([
+    supabase.from("weekly_meal_plans").select("id").eq("household_id", membership.household_id).lt("week_start_date", currentWeekStart),
+    supabase.from("weekly_meal_plans").select("id").eq("household_id", membership.household_id).eq("week_start_date", currentWeekStart).in("status", ["approved", "grocery_generated"]).maybeSingle(),
+    supabase.from("weekly_meal_plans").select("id").eq("household_id", membership.household_id).eq("week_start_date", selectedWeekStart).in("status", ["approved", "grocery_generated"]).maybeSingle(),
     supabase.from("weekly_meal_plans").select("id").eq("household_id", membership.household_id).eq("week_start_date", nextWeekStart).in("status", ["approved", "grocery_generated"]).maybeSingle(),
   ]);
-  if (selectedPlanError || nextWeekPlanError) throw new Error("Unable to load the selected weekly plan.");
+  if (expiredPlansError || currentWeekPlanError || selectedPlanError || nextWeekPlanError) throw new Error("Unable to load the selected weekly plan.");
+  const expiredPlanIds = (expiredPlans ?? []).map((plan) => plan.id);
+  let rolloverError: string | null = null;
+  if (expiredPlanIds.length > 0) {
+    const [{ data: expiredGroceryLists, error: expiredGroceryListsError }, { data: currentGroceryList, error: currentGroceryListError }] = await Promise.all([
+      supabase.from("grocery_lists").select("id").eq("household_id", membership.household_id).in("weekly_meal_plan_id", expiredPlanIds),
+      currentWeekPlan
+        ? supabase.from("grocery_lists").select("id").eq("household_id", membership.household_id).eq("weekly_meal_plan_id", currentWeekPlan.id).maybeSingle()
+        : Promise.resolve({ data: null, error: null }),
+    ]);
+    if (expiredGroceryListsError || currentGroceryListError) throw new Error("Unable to check grocery baskets for rollover.");
+    const expiredGroceryListIds = (expiredGroceryLists ?? []).map((groceryList) => groceryList.id);
+    if (expiredGroceryListIds.length > 0) {
+      const { error } = await supabase.from("grocery_lists").delete().in("id", expiredGroceryListIds);
+      if (error) throw new Error("Unable to clear expired grocery baskets.");
+    }
+    if (expiredGroceryListIds.length > 0 && currentWeekPlan && !currentGroceryList) {
+      const result = await approveWeeklyPlan({ meal_plan_id: currentWeekPlan.id });
+      if (!result.success) rolloverError = result.message;
+    }
+  }
   const weekSelector = <GroceryWeekSelector currentWeekStart={currentWeekStart} nextWeekStart={nextWeekStart} selectedWeekStart={selectedWeekStart} hasNextWeekPlan={Boolean(nextWeekPlan)} />;
-  if (!selectedPlan) return <EmptyBasket weekSelector={weekSelector} />;
+  if (rolloverError && selectedWeekStart === currentWeekStart) return <EmptyBasket weekSelector={weekSelector} message={`We couldn't refresh this week's grocery basket. ${rolloverError}`} />;
+  if (!selectedPlan) return <EmptyBasket weekSelector={weekSelector} message="No approved meal plan for this week. Approve a meal plan to generate your grocery list." />;
 
   const { data: groceryList, error: groceryListError } = await supabase
     .from("grocery_lists")
-    .select("id, weekly_meal_plan_id, status, currency_code")
+    .select("id, weekly_meal_plan_id, status, currency_code, updated_at")
     .eq("household_id", membership.household_id)
     .eq("weekly_meal_plan_id", selectedPlan.id)
     .maybeSingle();
@@ -77,7 +102,7 @@ export default async function GroceryPage({ searchParams }: GroceryPageProps) {
 
   const [{ data: plan, error: planError }, { data: items, error: itemsError }, { count: mealCount, error: mealCountError }, { data: pantryItems, error: pantryItemsError }] = await Promise.all([
     supabase.from("weekly_meal_plans").select("week_start_date").eq("id", groceryList.weekly_meal_plan_id).maybeSingle(),
-    supabase.from("grocery_list_items").select("id, ingredient_id, custom_name, effective_quantity_base, base_unit_code, estimated_total_cost, is_removed").eq("grocery_list_id", groceryList.id).eq("is_removed", false).order("created_at"),
+    supabase.from("grocery_list_items").select("id, ingredient_id, custom_name, effective_quantity_base, manual_adjustment_quantity_base, base_unit_code, is_removed").eq("grocery_list_id", groceryList.id).eq("is_removed", false).order("created_at"),
     supabase.from("weekly_meal_plan_items").select("id", { count: "exact", head: true }).eq("meal_plan_id", groceryList.weekly_meal_plan_id),
     supabase.from("pantry_items").select("ingredient_id").eq("household_id", membership.household_id).eq("available", true),
   ]);
@@ -96,7 +121,7 @@ export default async function GroceryPage({ searchParams }: GroceryPageProps) {
     { data: itemSources, error: itemSourcesError },
   ] = await Promise.all([
     allIngredientIds.length > 0
-      ? supabase.from("ingredients").select("id, name").in("id", allIngredientIds)
+      ? supabase.from("ingredients").select("id, name, ingredient_category").in("id", allIngredientIds)
       : Promise.resolve({ data: [], error: null }),
     groceryItemIds.length > 0
       ? supabase.from("grocery_list_item_sources").select("grocery_list_item_id, weekly_meal_plan_item_id, recipe_id").in("grocery_list_item_id", groceryItemIds)
@@ -155,30 +180,22 @@ export default async function GroceryPage({ searchParams }: GroceryPageProps) {
     sourcesByGroceryItemId.set(source.grocery_list_item_id, usedIn);
   }
 
-  const currency = groceryList.currency_code ?? "INR";
   const weekLabel = plan?.week_start_date ? new Intl.DateTimeFormat("en-IN", { day: "numeric", month: "short", timeZone: "UTC" }).format(new Date(`${plan.week_start_date}T00:00:00.000Z`)) : "your approved week";
-  const basketItems: GroceryBasketItem[] = groceryItems.map((item) => ({
-    id: item.id,
-    ingredientId: item.ingredient_id,
-    name: item.ingredient_id ? ingredientNames.get(item.ingredient_id) ?? "Catalog ingredient" : item.custom_name ?? "Custom item",
-    quantity: item.effective_quantity_base,
-    unit: item.base_unit_code,
-    estimatedCost: item.estimated_total_cost,
-    usedIn: sourcesByGroceryItemId.get(item.id) ?? [],
-  }));
+  const basketItems: GroceryBasketItem[] = groceryItems.map((item) => {
+    const shoppingQuantity = item.manual_adjustment_quantity_base === 0 ? roundShoppingQuantity(item.effective_quantity_base, item.base_unit_code) : displayShoppingQuantity(item.effective_quantity_base, item.base_unit_code);
+    const ingredient = item.ingredient_id ? (ingredients ?? []).find((entry) => entry.id === item.ingredient_id) : null;
+    return { id: item.id, name: item.ingredient_id ? ingredientNames.get(item.ingredient_id) ?? "Catalog ingredient" : item.custom_name ?? "Custom item", ingredientCategory: ingredient?.ingredient_category ?? null, quantity: shoppingQuantity.quantity, unit: shoppingQuantity.unit, baseUnit: item.base_unit_code, usedIn: sourcesByGroceryItemId.get(item.id) ?? [] };
+  });
   const pantrySummaryItems = [...new Set(pantryCoveredGroceryItems.map((item) => item.ingredient_id ? ingredientNames.get(item.ingredient_id) ?? "Catalog ingredient" : item.custom_name ?? "Custom item"))];
-  const estimatedBasketCost = basketItems.reduce((total, item) => total + (item.estimatedCost ?? 0), 0);
-  const hasEstimatedBasketCost = basketItems.some((item) => item.estimatedCost !== null);
-  const currencyFormatter = new Intl.NumberFormat("en-IN", { style: "currency", currency, maximumFractionDigits: 2 });
   const weekRange = plan?.week_start_date ? formatWeekRange(plan.week_start_date) : "—";
 
   return <section className="space-y-6" aria-labelledby="grocery-heading">
     <div className="flex flex-col gap-4 rounded-3xl border border-white/[0.08] bg-white/[0.04] p-6 backdrop-blur-xl sm:flex-row sm:items-center sm:justify-between">
       <div><p className="text-sm font-medium uppercase tracking-widest text-emerald-400/80">Approved meal plan</p><h1 id="grocery-heading" className="mt-2 text-3xl font-semibold tracking-tight text-white">Grocery basket</h1><p className="mt-2 text-sm text-zinc-400">Ingredients needed for the week starting {weekLabel}, adjusted for your pantry.</p><div className="mt-4">{weekSelector}</div></div>
-      <dl className="grid grid-cols-3 gap-3 text-left sm:min-w-[28rem]"><SummaryItem label="Week" value={weekRange} /><SummaryItem label="Meals planned" value={mealCount === null ? "—" : String(mealCount)} /><SummaryItem label="Estimated cost" value={hasEstimatedBasketCost ? currencyFormatter.format(estimatedBasketCost) : "—"} /></dl>
+      <dl className="grid grid-cols-3 gap-3 text-left sm:min-w-[28rem]"><SummaryItem label="Week" value={weekRange} /><SummaryItem label="Meals planned" value={mealCount === null ? "—" : String(mealCount)} /><SummaryItem label="Shopping items" value={String(basketItems.length)} /></dl>
     </div>
     <PantrySummary items={pantrySummaryItems} />
-    {basketItems.length === 0 ? <div className="rounded-3xl border border-white/[0.08] bg-white/[0.04] p-5 sm:p-7"><p className="rounded-xl border border-dashed border-white/10 px-4 py-8 text-center text-sm text-zinc-500">This approved week does not need any additional grocery items.</p></div> : <GroceryBasket groceryListId={groceryList.id} currency={currency} items={basketItems} />}
+    {basketItems.length === 0 ? <div className="rounded-3xl border border-white/[0.08] bg-white/[0.04] p-5 sm:p-7"><p className="rounded-xl border border-dashed border-white/10 px-4 py-8 text-center text-sm text-zinc-500">This approved week does not need any additional grocery items.</p></div> : <GroceryBasket basketKey={`${groceryList.id}:${groceryList.updated_at}`} items={basketItems} pantryItemCount={pantrySummaryItems.length} />}
   </section>;
 }
 
@@ -194,6 +211,6 @@ function GroceryWeekSelector({ currentWeekStart, nextWeekStart, selectedWeekStar
   </nav>;
 }
 
-function EmptyBasket({ weekSelector }: { weekSelector: ReactNode }) {
-  return <section className="flex min-h-[50vh] items-center justify-center" aria-labelledby="grocery-heading"><div className="w-full max-w-xl rounded-3xl border border-white/[0.08] bg-white/[0.04] p-8 text-center backdrop-blur-xl sm:p-10"><div className="flex justify-center">{weekSelector}</div><ShoppingBasket className="mx-auto mt-6 h-10 w-10 text-emerald-400" aria-hidden="true" /><h1 id="grocery-heading" className="mt-4 text-3xl font-semibold tracking-tight text-white">No grocery basket yet</h1><p className="mx-auto mt-4 max-w-md leading-relaxed text-zinc-400">Approve a review-ready weekly meal plan to generate your pantry-adjusted grocery basket.</p></div></section>;
+function EmptyBasket({ weekSelector, message = "Approve a review-ready weekly meal plan to generate your pantry-adjusted grocery basket." }: { weekSelector: ReactNode; message?: string }) {
+  return <section className="flex min-h-[50vh] items-center justify-center" aria-labelledby="grocery-heading"><div className="w-full max-w-xl rounded-3xl border border-white/[0.08] bg-white/[0.04] p-8 text-center backdrop-blur-xl sm:p-10"><div className="flex justify-center">{weekSelector}</div><ShoppingBasket className="mx-auto mt-6 h-10 w-10 text-emerald-400" aria-hidden="true" /><h1 id="grocery-heading" className="mt-4 text-3xl font-semibold tracking-tight text-white">No grocery basket yet</h1><p className="mx-auto mt-4 max-w-md leading-relaxed text-zinc-400">{message}</p></div></section>;
 }

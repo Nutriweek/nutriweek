@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 
 import { createClient } from "@/lib/supabase/server";
+import { roundShoppingQuantity, toBaseShoppingQuantity } from "@/lib/grocery/roundShoppingQuantity";
 import type { Json, Tables } from "@/lib/supabase/database.types";
 
 import { getAvailableMealSlots, getUpcomingWeekStart, getWeekEnd, getWeekStart } from "@/lib/meal-plans/constants";
@@ -239,18 +240,13 @@ export async function approveWeeklyPlan(values: ApproveWeeklyPlanInput): Promise
     const [{ data: recipes, error: recipesError }, { data: recipeIngredientsData, error: recipeIngredientsError }, { data: pantryItems, error: pantryItemsError }, { data: existingItems, error: existingItemsError }] = await Promise.all([
       supabase.from("recipes").select("id, servings").in("id", recipeIds),
       supabase.from("recipe_ingredients").select("recipe_id, ingredient_id, base_quantity, base_unit_code").in("recipe_id", recipeIds),
-      supabase.from("pantry_items").select("ingredient_id, quantity_base, base_unit_code, expires_at").eq("household_id", householdId),
-      supabase.from("grocery_list_items").select("id, ingredient_id, manual_adjustment_quantity_base, is_removed, estimated_unit_cost").eq("grocery_list_id", groceryList.id).eq("is_custom", false),
+      supabase.from("pantry_items").select("ingredient_id").eq("household_id", householdId).eq("available", true),
+      supabase.from("grocery_list_items").select("id, ingredient_id").eq("grocery_list_id", groceryList.id).eq("is_custom", false),
     ]);
     if (recipesError || recipeIngredientsError || pantryItemsError || existingItemsError) {
       return { success: false, message: "Week approved, but we could not load the data needed for its grocery basket." };
     }
     const recipeIngredients = (recipeIngredientsData ?? []) as RecipeIngredient[];
-    const ingredientIds = [...new Set(recipeIngredients.map((item: RecipeIngredient) => item.ingredient_id))];
-    const { data: ingredients } = ingredientIds.length > 0
-      ? await supabase.from("ingredients").select("id, estimated_unit_cost, cost_currency").in("id", ingredientIds)
-      : { data: [] };
-
     const existingSnapshotItems = await supabase.from("meal_plan_item_recipe_snapshots").select("meal_plan_item_id").in("meal_plan_item_id", plannedItems.map((item: PlannedRecipeItem) => item.id));
     const existingSnapshotIds = new Set((existingSnapshotItems.data ?? []).map((item) => item.meal_plan_item_id));
     const recipeSnapshotById = new Map((recipes ?? []).map((recipe) => [recipe.id, recipe]));
@@ -284,22 +280,20 @@ export async function approveWeeklyPlan(values: ApproveWeeklyPlanInput): Promise
         required.set(ingredient.ingredient_id, current);
       }
     }
-    const pantryByIngredientAndUnit = new Map<string, number>();
-    const today = new Date().toISOString().slice(0, 10);
-    for (const item of pantryItems ?? []) {
-      if (!item.expires_at || item.expires_at >= today) {
-        const key = `${item.ingredient_id}:${item.base_unit_code}`;
-        pantryByIngredientAndUnit.set(key, (pantryByIngredientAndUnit.get(key) ?? 0) + item.quantity_base);
-      }
-    }
-    const ingredientCost = new Map((ingredients ?? []).map((ingredient) => [ingredient.id, ingredient.estimated_unit_cost]));
+    const pantryIngredientIds = new Set((pantryItems ?? []).map((item) => item.ingredient_id));
     const existingByIngredient = new Map((existingItems ?? []).flatMap((item) => item.ingredient_id ? [[item.ingredient_id, item]] as const : []));
-    let total = 0;
     for (const [ingredientId, requirement] of required) {
-      const generated = Math.max(0, requirement.quantity - (pantryByIngredientAndUnit.get(`${ingredientId}:${requirement.unit}`) ?? 0));
+      const generated = pantryIngredientIds.has(ingredientId) ? 0 : requirement.quantity;
       const existing = existingByIngredient.get(ingredientId);
-      const manualAdjustment = existing?.manual_adjustment_quantity_base ?? 0;
-      const effective = Math.max(0, generated + manualAdjustment);
+      if (generated <= 0) {
+        if (existing) {
+          const { error } = await supabase.from("grocery_list_items").delete().eq("id", existing.id);
+          if (error) return { success: false, message: "Week approved, but we could not remove a pantry-covered grocery item." };
+        }
+        continue;
+      }
+      const rounded = roundShoppingQuantity(generated, requirement.unit);
+      const effective = toBaseShoppingQuantity(rounded.quantity, rounded.unit, requirement.unit);
       if (effective <= 0) {
         if (existing) {
           const { error } = await supabase.from("grocery_list_items").delete().eq("id", existing.id);
@@ -307,10 +301,7 @@ export async function approveWeeklyPlan(values: ApproveWeeklyPlanInput): Promise
         }
         continue;
       }
-      const unitCost = ingredientCost.get(ingredientId) ?? null;
-      const totalCost = unitCost === null ? null : unitCost * effective;
-      if (!existing?.is_removed && totalCost !== null) total += totalCost;
-      const payload = { generated_quantity_base: generated, effective_quantity_base: effective, base_unit_code: requirement.unit, estimated_unit_cost: unitCost, estimated_total_cost: totalCost };
+      const payload = { generated_quantity_base: effective, manual_adjustment_quantity_base: 0, effective_quantity_base: effective, base_unit_code: requirement.unit, estimated_unit_cost: null, estimated_total_cost: null, is_purchased: false };
       const { error } = existing
         ? await supabase.from("grocery_list_items").update(payload).eq("id", existing.id)
         : await supabase.from("grocery_list_items").insert({ grocery_list_id: groceryList.id, ingredient_id: ingredientId, ...payload });
@@ -334,10 +325,10 @@ export async function approveWeeklyPlan(values: ApproveWeeklyPlanInput): Promise
       const { error } = await supabase.from("grocery_list_item_sources").insert(sources);
       if (error) return { success: false, message: "Week approved, but we could not save grocery item sources." };
     }
-    const { error: groceryListUpdateError } = await supabase.from("grocery_lists").update({ estimated_total: total, currency_code: "INR" }).eq("id", groceryList.id);
+    const { error: groceryListUpdateError } = await supabase.from("grocery_lists").update({ estimated_total: null, currency_code: null }).eq("id", groceryList.id);
     if (groceryListUpdateError) return { success: false, message: "Week approved, but we could not finalize the grocery basket." };
   } else {
-    const { data: existingItems } = await supabase.from("grocery_list_items").select("id, manual_adjustment_quantity_base").eq("grocery_list_id", groceryList.id).eq("is_custom", false);
+    const { data: existingItems } = await supabase.from("grocery_list_items").select("id").eq("grocery_list_id", groceryList.id).eq("is_custom", false);
     const ids = (existingItems ?? []).map((item) => item.id);
     if (ids.length > 0) {
       const { error: sourcesError } = await supabase.from("grocery_list_item_sources").delete().in("grocery_list_item_id", ids);
@@ -345,7 +336,7 @@ export async function approveWeeklyPlan(values: ApproveWeeklyPlanInput): Promise
       const { error } = await supabase.from("grocery_list_items").delete().in("id", ids);
       if (error) return { success: false, message: "Week approved, but we could not remove unused grocery items." };
     }
-    const { error } = await supabase.from("grocery_lists").update({ estimated_total: 0, currency_code: "INR" }).eq("id", groceryList.id);
+    const { error } = await supabase.from("grocery_lists").update({ estimated_total: null, currency_code: null }).eq("id", groceryList.id);
     if (error) return { success: false, message: "Week approved, but we could not finalize the grocery basket." };
   }
 

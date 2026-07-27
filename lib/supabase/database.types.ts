@@ -203,6 +203,7 @@ export type Database = {
           id: string
           ingredient_id: string | null
           is_custom: boolean
+          is_purchased: boolean
           is_removed: boolean
           manual_adjustment_quantity_base: number
           updated_at: string
@@ -219,6 +220,7 @@ export type Database = {
           id?: string
           ingredient_id?: string | null
           is_custom?: boolean
+          is_purchased?: boolean
           is_removed?: boolean
           manual_adjustment_quantity_base?: number
           updated_at?: string
@@ -235,6 +237,7 @@ export type Database = {
           id?: string
           ingredient_id?: string | null
           is_custom?: boolean
+          is_purchased?: boolean
           is_removed?: boolean
           manual_adjustment_quantity_base?: number
           updated_at?: string

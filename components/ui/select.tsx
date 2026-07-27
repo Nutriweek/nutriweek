@@ -34,8 +34,9 @@ export function SelectContent({ className = "", children, onFocusCapture, onClos
           onFocusCapture?.(event);
           if (hasResetViewport.current) return;
           hasResetViewport.current = true;
+          const content = event.currentTarget;
           requestAnimationFrame(() => {
-            const viewport = event.currentTarget.querySelector<HTMLElement>("[data-radix-select-viewport]");
+            const viewport = content.querySelector<HTMLElement>("[data-radix-select-viewport]");
             viewport?.scrollTo({ top: 0 });
           });
         }}
