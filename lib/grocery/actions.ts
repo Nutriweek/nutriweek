@@ -18,10 +18,11 @@ export async function updateGroceryItemQuantity(itemId: string, quantity: number
   return { success: true, message: "Shopping quantity updated." };
 }
 
-export async function setGroceryItemPurchased(itemId: string, isPurchased: boolean) {
+export async function completeGroceryPurchase(itemIds: string[]) {
+  if (itemIds.length === 0) return { success: false, message: "Select at least one shopping item." };
   const supabase = await createClient();
-  const { error } = await supabase.from("grocery_list_items").update({ is_purchased: isPurchased }).eq("id", itemId);
-  if (error) return { success: false, message: "We could not update this shopping item." };
+  const { error } = await supabase.rpc("complete_grocery_purchase", { item_ids: [...new Set(itemIds)] });
+  if (error) return { success: false, message: "We could not complete this purchase." };
   revalidatePath("/dashboard/grocery");
-  return { success: true, message: "Shopping item updated." };
+  return { success: true, message: "Purchase completed." };
 }
