@@ -470,6 +470,7 @@ export type Database = {
           created_by: string
           id: string
           name: string
+          preferred_shopping_provider_id: string
           updated_at: string
         }
         Insert: {
@@ -477,6 +478,7 @@ export type Database = {
           created_by: string
           id?: string
           name: string
+          preferred_shopping_provider_id?: string
           updated_at?: string
         }
         Update: {
@@ -484,9 +486,18 @@ export type Database = {
           created_by?: string
           id?: string
           name?: string
+          preferred_shopping_provider_id?: string
           updated_at?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "households_preferred_shopping_provider_id_fkey"
+            columns: ["preferred_shopping_provider_id"]
+            isOneToOne: false
+            referencedRelation: "shopping_providers"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       ingredient_aliases: {
         Row: {
@@ -1725,6 +1736,39 @@ export type Database = {
         }
         Relationships: []
       }
+      shopping_providers: {
+        Row: {
+          created_at: string
+          icon: string | null
+          id: string
+          name: string
+          provider_type: string
+          sort_order: number
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          icon?: string | null
+          id: string
+          name: string
+          provider_type: string
+          sort_order: number
+          status: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          icon?: string | null
+          id?: string
+          name?: string
+          provider_type?: string
+          sort_order?: number
+          status?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       recipes: {
         Row: {
           calories_kcal: number | null
@@ -2022,6 +2066,13 @@ export type Database = {
       recalculate_recipe_quality: {
         Args: { target_recipe_id: string }
         Returns: undefined
+      }
+      set_household_shopping_provider: {
+        Args: { target_household_id: string; target_provider_id: string }
+        Returns: {
+          message: string
+          success: boolean
+        }[]
       }
     }
     Enums: {
