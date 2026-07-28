@@ -37,6 +37,8 @@ type PantryItem = {
   ingredient_id: string;
 };
 
+type BasketSnapshotItem = { id: string; name: string; quantity: number; manualAdjustmentQuantity: number; baseUnit: string; purchased: boolean };
+
 type GroceryPageProps = { searchParams: Promise<{ week?: string }> };
 
 export default async function GroceryPage({ searchParams }: GroceryPageProps) {
@@ -58,13 +60,13 @@ export default async function GroceryPage({ searchParams }: GroceryPageProps) {
   const nextWeekStart = getUpcomingWeekStart();
   const selectedWeekStart = week && /^\d{4}-\d{2}-\d{2}$/.test(week) ? getWeekStart(week) : currentWeekStart;
   const [{ data: expiredPlans, error: expiredPlansError }, { data: currentWeekPlan, error: currentWeekPlanError }, { data: selectedPlan, error: selectedPlanError }, { data: nextWeekPlan, error: nextWeekPlanError }] = await Promise.all([
-    supabase.from("weekly_meal_plans").select("id").eq("household_id", membership.household_id).lt("week_start_date", currentWeekStart),
-    supabase.from("weekly_meal_plans").select("id").eq("household_id", membership.household_id).eq("week_start_date", currentWeekStart).in("status", ["approved", "grocery_generated"]).maybeSingle(),
-    supabase.from("weekly_meal_plans").select("id").eq("household_id", membership.household_id).eq("week_start_date", selectedWeekStart).in("status", ["approved", "grocery_generated"]).maybeSingle(),
-    supabase.from("weekly_meal_plans").select("id").eq("household_id", membership.household_id).eq("week_start_date", nextWeekStart).in("status", ["approved", "grocery_generated"]).maybeSingle(),
+    supabase.from("weekly_meal_plans").select("id, status").eq("household_id", membership.household_id).lt("week_start_date", currentWeekStart),
+    supabase.from("weekly_meal_plans").select("id").eq("household_id", membership.household_id).eq("week_start_date", currentWeekStart).in("status", ["approved", "grocery_generated", "purchased"]).maybeSingle(),
+    supabase.from("weekly_meal_plans").select("id, status").eq("household_id", membership.household_id).eq("week_start_date", selectedWeekStart).in("status", ["approved", "grocery_generated", "purchased"]).maybeSingle(),
+    supabase.from("weekly_meal_plans").select("id").eq("household_id", membership.household_id).eq("week_start_date", nextWeekStart).in("status", ["approved", "grocery_generated", "purchased"]).maybeSingle(),
   ]);
   if (expiredPlansError || currentWeekPlanError || selectedPlanError || nextWeekPlanError) throw new Error("Unable to load the selected weekly plan.");
-  const expiredPlanIds = (expiredPlans ?? []).map((plan) => plan.id);
+  const expiredPlanIds = (expiredPlans ?? []).filter((plan) => plan.status !== "purchased").map((plan) => plan.id);
   let rolloverError: string | null = null;
   if (expiredPlanIds.length > 0) {
     const [{ data: expiredGroceryLists, error: expiredGroceryListsError }, { data: currentGroceryList, error: currentGroceryListError }] = await Promise.all([
@@ -100,13 +102,15 @@ export default async function GroceryPage({ searchParams }: GroceryPageProps) {
     return <EmptyBasket weekSelector={weekSelector} />;
   }
 
-  const [{ data: plan, error: planError }, { data: items, error: itemsError }, { count: mealCount, error: mealCountError }, { data: pantryItems, error: pantryItemsError }] = await Promise.all([
+  const isPurchasedPlan = selectedPlan.status === "purchased";
+  const [{ data: plan, error: planError }, { data: items, error: itemsError }, { count: mealCount, error: mealCountError }, { data: pantryItems, error: pantryItemsError }, { data: completedCheckoutSession, error: completedCheckoutSessionError }] = await Promise.all([
     supabase.from("weekly_meal_plans").select("week_start_date").eq("id", groceryList.weekly_meal_plan_id).maybeSingle(),
     supabase.from("grocery_list_items").select("id, ingredient_id, custom_name, effective_quantity_base, manual_adjustment_quantity_base, base_unit_code, is_removed").eq("grocery_list_id", groceryList.id).eq("is_removed", false).order("created_at"),
     supabase.from("weekly_meal_plan_items").select("id", { count: "exact", head: true }).eq("meal_plan_id", groceryList.weekly_meal_plan_id),
     supabase.from("pantry_items").select("ingredient_id").eq("household_id", membership.household_id).eq("available", true),
+    isPurchasedPlan ? supabase.from("checkout_sessions").select("basket_snapshot").eq("grocery_list_id", groceryList.id).eq("status", "completed").order("completed_at", { ascending: false }).limit(1).maybeSingle() : Promise.resolve({ data: null, error: null }),
   ]);
-  if (planError || itemsError || mealCountError || pantryItemsError) throw new Error("Unable to load your grocery basket items.");
+  if (planError || itemsError || mealCountError || pantryItemsError || completedCheckoutSessionError) throw new Error("Unable to load your grocery basket items.");
 
   const availablePantryIngredientIds = new Set(((pantryItems ?? []) as PantryItem[]).map((item) => item.ingredient_id));
   const allGroceryItems = (items ?? []) as GroceryItem[];
@@ -181,26 +185,45 @@ export default async function GroceryPage({ searchParams }: GroceryPageProps) {
   }
 
   const weekLabel = plan?.week_start_date ? new Intl.DateTimeFormat("en-IN", { day: "numeric", month: "short", timeZone: "UTC" }).format(new Date(`${plan.week_start_date}T00:00:00.000Z`)) : "your approved week";
-  const basketItems: GroceryBasketItem[] = groceryItems.map((item) => {
+  const liveBasketItems: GroceryBasketItem[] = groceryItems.map((item) => {
     const shoppingQuantity = item.manual_adjustment_quantity_base === 0 ? roundShoppingQuantity(item.effective_quantity_base, item.base_unit_code) : displayShoppingQuantity(item.effective_quantity_base, item.base_unit_code);
     const ingredient = item.ingredient_id ? (ingredients ?? []).find((entry) => entry.id === item.ingredient_id) : null;
     return { id: item.id, name: item.ingredient_id ? ingredientNames.get(item.ingredient_id) ?? "Catalog ingredient" : item.custom_name ?? "Custom item", ingredientCategory: ingredient?.ingredient_category ?? null, quantity: shoppingQuantity.quantity, unit: shoppingQuantity.unit, baseUnit: item.base_unit_code, usedIn: sourcesByGroceryItemId.get(item.id) ?? [] };
   });
+  const historicalBasketItems = parseBasketSnapshot(completedCheckoutSession?.basket_snapshot);
+  const historicalDisplayItems = historicalBasketItems.map((item) => {
+    const shoppingQuantity = item.manualAdjustmentQuantity === 0 ? roundShoppingQuantity(item.quantity, item.baseUnit) : displayShoppingQuantity(item.quantity, item.baseUnit);
+    return { ...item, quantity: shoppingQuantity.quantity, unit: shoppingQuantity.unit };
+  });
+  const basketItemCount = isPurchasedPlan && historicalDisplayItems.length > 0 ? historicalDisplayItems.length : liveBasketItems.length;
   const pantrySummaryItems = [...new Set(pantryCoveredGroceryItems.map((item) => item.ingredient_id ? ingredientNames.get(item.ingredient_id) ?? "Catalog ingredient" : item.custom_name ?? "Custom item"))];
   const weekRange = plan?.week_start_date ? formatWeekRange(plan.week_start_date) : "—";
 
   return <section className="space-y-6" aria-labelledby="grocery-heading">
     <div className="flex flex-col gap-4 rounded-3xl border border-white/[0.08] bg-white/[0.04] p-6 backdrop-blur-xl sm:flex-row sm:items-center sm:justify-between">
-      <div><p className="text-sm font-medium uppercase tracking-widest text-emerald-400/80">Approved meal plan</p><h1 id="grocery-heading" className="mt-2 text-3xl font-semibold tracking-tight text-white">Grocery basket</h1><p className="mt-2 text-sm text-zinc-400">Ingredients needed for the week starting {weekLabel}, adjusted for your pantry.</p><div className="mt-4">{weekSelector}</div></div>
-      <dl className="grid grid-cols-3 gap-3 text-left sm:min-w-[28rem]"><SummaryItem label="Week" value={weekRange} /><SummaryItem label="Meals planned" value={mealCount === null ? "—" : String(mealCount)} /><SummaryItem label="Shopping items" value={String(basketItems.length)} /></dl>
+      <div><p className="text-sm font-medium uppercase tracking-widest text-emerald-400/80">{isPurchasedPlan ? "Purchased meal plan" : "Approved meal plan"}</p><h1 id="grocery-heading" className="mt-2 text-3xl font-semibold tracking-tight text-white">Grocery basket</h1><p className="mt-2 text-sm text-zinc-400">Ingredients needed for the week starting {weekLabel}, adjusted for your pantry.</p><div className="mt-4">{weekSelector}</div></div>
+      <dl className="grid grid-cols-3 gap-3 text-left sm:min-w-[28rem]"><SummaryItem label="Week" value={weekRange} /><SummaryItem label="Meals planned" value={mealCount === null ? "—" : String(mealCount)} /><SummaryItem label="Shopping items" value={String(basketItemCount)} /></dl>
     </div>
     <PantrySummary items={pantrySummaryItems} />
-    {basketItems.length === 0 ? <div className="rounded-3xl border border-white/[0.08] bg-white/[0.04] p-5 sm:p-7"><p className="rounded-xl border border-dashed border-white/10 px-4 py-8 text-center text-sm text-zinc-500">This approved week does not need any additional grocery items.</p></div> : <GroceryBasket basketKey={`${groceryList.id}:${groceryList.updated_at}`} groceryListId={groceryList.id} items={basketItems} pantryItemCount={pantrySummaryItems.length} />}
+    {isPurchasedPlan && historicalDisplayItems.length > 0 ? <HistoricalGroceryBasket items={historicalDisplayItems} /> : liveBasketItems.length === 0 ? <div className="rounded-3xl border border-white/[0.08] bg-white/[0.04] p-5 sm:p-7"><p className="rounded-xl border border-dashed border-white/10 px-4 py-8 text-center text-sm text-zinc-500">This approved week does not need any additional grocery items.</p></div> : <GroceryBasket basketKey={`${groceryList.id}:${groceryList.updated_at}`} groceryListId={groceryList.id} items={liveBasketItems} pantryItemCount={pantrySummaryItems.length} />}
   </section>;
 }
 
 function SummaryItem({ label, value }: { label: string; value: string }) {
   return <div className="rounded-xl border border-white/[0.08] bg-black/10 p-3"><dt className="text-xs text-zinc-500">{label}</dt><dd className="mt-1 text-sm font-semibold text-white">{value}</dd></div>;
+}
+
+function parseBasketSnapshot(value: unknown): BasketSnapshotItem[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((item) => {
+    if (!item || typeof item !== "object") return [];
+    const snapshot = item as Record<string, unknown>;
+    return typeof snapshot.id === "string" && typeof snapshot.name === "string" && typeof snapshot.quantity === "number" && typeof snapshot.manualAdjustmentQuantity === "number" && typeof snapshot.baseUnit === "string" && typeof snapshot.purchased === "boolean" ? [{ id: snapshot.id, name: snapshot.name, quantity: snapshot.quantity, manualAdjustmentQuantity: snapshot.manualAdjustmentQuantity, baseUnit: snapshot.baseUnit, purchased: snapshot.purchased }] : [];
+  });
+}
+
+function HistoricalGroceryBasket({ items }: { items: (BasketSnapshotItem & { unit: string })[] }) {
+  return <section className="rounded-3xl border border-white/[0.08] bg-white/[0.04] p-5 sm:p-7" aria-labelledby="historical-grocery-items-heading"><div className="mb-5"><h2 id="historical-grocery-items-heading" className="text-lg font-semibold text-white">Shopping List</h2><p className="mt-1 text-sm text-zinc-400">{items.length} item{items.length === 1 ? "" : "s"} in this completed grocery basket.</p></div><ul className="divide-y divide-white/[0.08] rounded-2xl border border-white/[0.08] px-4">{items.map((item) => <li key={item.id} className="flex items-center justify-between gap-4 py-4"><div><p className={`font-medium ${item.purchased ? "text-zinc-400 line-through" : "text-white"}`}>{item.name}</p><p className={`mt-1 text-xs font-medium ${item.purchased ? "text-emerald-300" : "text-amber-200"}`}>{item.purchased ? "Purchased" : "Pending"}</p></div><span className="shrink-0 text-sm font-medium text-emerald-300">{item.quantity} {item.unit}</span></li>)}</ul></section>;
 }
 
 function GroceryWeekSelector({ currentWeekStart, nextWeekStart, selectedWeekStart, hasNextWeekPlan }: { currentWeekStart: string; nextWeekStart: string; selectedWeekStart: string; hasNextWeekPlan: boolean }) {

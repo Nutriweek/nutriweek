@@ -66,7 +66,7 @@ export async function prepareWeeklyPlan(values: PrepareWeeklyPlanInput): Promise
     .eq("week_start_date", parsed.data.week_start_date)
     .maybeSingle();
   if (existingPlanError) return { success: false, message: "We could not check this weekly plan." };
-  if (existingPlan && ["approved", "grocery_generated", "archived"].includes(existingPlan.status)) {
+  if (existingPlan && ["approved", "grocery_generated", "purchased", "archived"].includes(existingPlan.status)) {
     return { success: false, message: "Approved weeks cannot be regenerated." };
   }
 
@@ -221,6 +221,7 @@ export async function approveWeeklyPlan(values: ApproveWeeklyPlanInput): Promise
   if (!user || !householdId) return { success: false, message: "Your household is not available yet." };
   const { data: plan } = await supabase.from("weekly_meal_plans").select("id, status").eq("id", parsed.data.meal_plan_id).eq("household_id", householdId).maybeSingle();
   if (!plan) return { success: false, message: "This weekly plan is not available." };
+  if (plan.status === "purchased") return { success: false, message: "This weekly plan is read-only because its groceries have already been purchased." };
   if (!(["prepared_for_review", "approved", "grocery_generated"] as const).includes(plan.status)) {
     return { success: false, message: "Review the prepared week before generating its grocery basket." };
   }

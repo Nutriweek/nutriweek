@@ -94,6 +94,7 @@ export async function addMealPlanItem(values: AddMealPlanItemInput): Promise<Mea
   if (planError || !plan) {
     return { success: false, message: "This weekly plan is no longer available." };
   }
+  if (plan.status === "purchased") return { success: false, message: "This weekly plan is read-only because its groceries have already been purchased." };
 
   const currentWeekStart = getWeekStart();
   const upcomingWeekStart = getUpcomingWeekStart();
@@ -212,6 +213,7 @@ export async function deleteMealPlanItem(values: DeleteMealPlanItemInput): Promi
 
   const { data: plan, error: planError } = await supabase.from("weekly_meal_plans").select("id, status").eq("id", parsedValues.data.meal_plan_id).eq("household_id", householdId).maybeSingle();
   if (planError || !plan) return { success: false, message: "This weekly plan is no longer available." };
+  if (plan.status === "purchased") return { success: false, message: "This weekly plan is read-only because its groceries have already been purchased." };
 
   const { data: mealItem, error: mealItemError } = await supabase.from("weekly_meal_plan_items").select("id").eq("id", parsedValues.data.meal_plan_item_id).eq("meal_plan_id", plan.id).eq("household_id", householdId).maybeSingle();
   if (mealItemError || !mealItem) return { success: false, message: "This meal is no longer available." };

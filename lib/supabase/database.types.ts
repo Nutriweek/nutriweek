@@ -133,6 +133,7 @@ export type Database = {
       }
       checkout_sessions: {
         Row: {
+          basket_snapshot: Json
           completed_at: string | null
           created_at: string
           grocery_list_id: string
@@ -143,6 +144,7 @@ export type Database = {
           status: string
         }
         Insert: {
+          basket_snapshot?: Json
           completed_at?: string | null
           created_at?: string
           grocery_list_id: string
@@ -153,6 +155,7 @@ export type Database = {
           status?: string
         }
         Update: {
+          basket_snapshot?: Json
           completed_at?: string | null
           created_at?: string
           grocery_list_id?: string
@@ -2053,7 +2056,7 @@ export type Database = {
           household_id: string
           id: string
           latest_generation_run_id: string | null
-          status: string
+          status: "draft" | "prepared_for_review" | "approved" | "grocery_generated" | "purchased" | "archived"
           updated_at: string
           week_start_date: string
         }
@@ -2066,7 +2069,7 @@ export type Database = {
           household_id: string
           id?: string
           latest_generation_run_id?: string | null
-          status?: string
+          status?: "draft" | "prepared_for_review" | "approved" | "grocery_generated" | "purchased" | "archived"
           updated_at?: string
           week_start_date: string
         }
@@ -2079,7 +2082,7 @@ export type Database = {
           household_id?: string
           id?: string
           latest_generation_run_id?: string | null
-          status?: string
+          status?: "draft" | "prepared_for_review" | "approved" | "grocery_generated" | "purchased" | "archived"
           updated_at?: string
           week_start_date?: string
         }
