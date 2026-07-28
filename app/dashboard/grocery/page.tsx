@@ -4,11 +4,8 @@ import type { ReactNode } from "react";
 
 import GroceryBasket, { type GroceryBasketItem } from "@/components/grocery/GroceryBasket";
 import PantrySummary from "@/components/grocery/PantrySummary";
-import ShoppingProviderSelector from "@/components/grocery/ShoppingProviderSelector";
 import { formatWeekRange, getUpcomingWeekStart, getWeekStart } from "@/lib/meal-plans";
 import { approveWeeklyPlan } from "@/lib/planning/actions";
-import { getShoppingProviders } from "@/lib/shopping-providers/actions";
-import { SHOPPING_PROVIDER_STATUS } from "@/lib/shopping-providers/constants";
 import { createClient } from "@/lib/supabase/server";
 import { displayShoppingQuantity, roundShoppingQuantity } from "@/lib/grocery/roundShoppingQuantity";
 
@@ -102,14 +99,6 @@ export default async function GroceryPage({ searchParams }: GroceryPageProps) {
   if (!groceryList) {
     return <EmptyBasket weekSelector={weekSelector} />;
   }
-
-  const [{ data: household, error: householdError }, shoppingProviders] = await Promise.all([
-    supabase.from("households").select("preferred_shopping_provider_id").eq("id", membership.household_id).maybeSingle(),
-    getShoppingProviders(),
-  ]);
-  if (householdError || !household) throw new Error("Unable to load your shopping provider preference.");
-  const preferredProviderId = household.preferred_shopping_provider_id ?? shoppingProviders.find((provider) => provider.status === SHOPPING_PROVIDER_STATUS.ACTIVE)?.id;
-  if (!preferredProviderId) throw new Error("No shopping provider is available.");
 
   const [{ data: plan, error: planError }, { data: items, error: itemsError }, { count: mealCount, error: mealCountError }, { data: pantryItems, error: pantryItemsError }] = await Promise.all([
     supabase.from("weekly_meal_plans").select("week_start_date").eq("id", groceryList.weekly_meal_plan_id).maybeSingle(),
@@ -205,9 +194,8 @@ export default async function GroceryPage({ searchParams }: GroceryPageProps) {
       <div><p className="text-sm font-medium uppercase tracking-widest text-emerald-400/80">Approved meal plan</p><h1 id="grocery-heading" className="mt-2 text-3xl font-semibold tracking-tight text-white">Grocery basket</h1><p className="mt-2 text-sm text-zinc-400">Ingredients needed for the week starting {weekLabel}, adjusted for your pantry.</p><div className="mt-4">{weekSelector}</div></div>
       <dl className="grid grid-cols-3 gap-3 text-left sm:min-w-[28rem]"><SummaryItem label="Week" value={weekRange} /><SummaryItem label="Meals planned" value={mealCount === null ? "—" : String(mealCount)} /><SummaryItem label="Shopping items" value={String(basketItems.length)} /></dl>
     </div>
-    <ShoppingProviderSelector providers={shoppingProviders} preferredProviderId={preferredProviderId} />
     <PantrySummary items={pantrySummaryItems} />
-    {basketItems.length === 0 ? <div className="rounded-3xl border border-white/[0.08] bg-white/[0.04] p-5 sm:p-7"><p className="rounded-xl border border-dashed border-white/10 px-4 py-8 text-center text-sm text-zinc-500">This approved week does not need any additional grocery items.</p></div> : <GroceryBasket basketKey={`${groceryList.id}:${groceryList.updated_at}`} items={basketItems} pantryItemCount={pantrySummaryItems.length} />}
+    {basketItems.length === 0 ? <div className="rounded-3xl border border-white/[0.08] bg-white/[0.04] p-5 sm:p-7"><p className="rounded-xl border border-dashed border-white/10 px-4 py-8 text-center text-sm text-zinc-500">This approved week does not need any additional grocery items.</p></div> : <GroceryBasket basketKey={`${groceryList.id}:${groceryList.updated_at}`} groceryListId={groceryList.id} items={basketItems} pantryItemCount={pantrySummaryItems.length} />}
   </section>;
 }
 

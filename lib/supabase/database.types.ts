@@ -131,6 +131,61 @@ export type Database = {
         }
         Relationships: []
       }
+      checkout_sessions: {
+        Row: {
+          completed_at: string | null
+          created_at: string
+          grocery_list_id: string
+          household_id: string
+          id: string
+          selected_grocery_item_ids: string[]
+          selected_shopping_provider_id: string | null
+          status: string
+        }
+        Insert: {
+          completed_at?: string | null
+          created_at?: string
+          grocery_list_id: string
+          household_id: string
+          id?: string
+          selected_grocery_item_ids: string[]
+          selected_shopping_provider_id?: string | null
+          status?: string
+        }
+        Update: {
+          completed_at?: string | null
+          created_at?: string
+          grocery_list_id?: string
+          household_id?: string
+          id?: string
+          selected_grocery_item_ids?: string[]
+          selected_shopping_provider_id?: string | null
+          status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "checkout_sessions_grocery_list_id_fkey"
+            columns: ["grocery_list_id"]
+            isOneToOne: false
+            referencedRelation: "grocery_lists"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "checkout_sessions_household_id_fkey"
+            columns: ["household_id"]
+            isOneToOne: false
+            referencedRelation: "households"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "checkout_sessions_selected_shopping_provider_id_fkey"
+            columns: ["selected_shopping_provider_id"]
+            isOneToOne: false
+            referencedRelation: "shopping_providers"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       grocery_list_item_sources: {
         Row: {
           base_unit_code: string

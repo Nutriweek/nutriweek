@@ -21,7 +21,9 @@ export async function updateGroceryItemQuantity(itemId: string, quantity: number
 export async function completeGroceryPurchase(itemIds: string[]) {
   if (itemIds.length === 0) return { success: false, message: "Select at least one shopping item." };
   const supabase = await createClient();
-  const { error } = await supabase.rpc("complete_grocery_purchase", { item_ids: [...new Set(itemIds)] });
+  const selectedItemIds = [...new Set(itemIds)];
+  console.info("[grocery purchase] server action received and forwarding selected item IDs", selectedItemIds);
+  const { error } = await supabase.rpc("complete_grocery_purchase", { item_ids: selectedItemIds });
   if (error) return { success: false, message: "We could not complete this purchase." };
   revalidatePath("/dashboard/grocery");
   return { success: true, message: "Purchase completed." };
