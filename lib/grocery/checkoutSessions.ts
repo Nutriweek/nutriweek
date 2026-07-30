@@ -12,6 +12,8 @@ export type CheckoutSessionDetails = {
 };
 export type CheckoutConfirmation = { providerName: string; purchasedItemCount: number };
 type BasketSnapshotItem = { id: string; name: string; quantity: number; manualAdjustmentQuantity: number; baseUnit: string; selectedForPurchase: boolean; purchased: boolean };
+export type CheckoutOrderDetails = { providerName: string; completedAt: string; weekStartDate: string; mealPlanStatus: string; items: BasketSnapshotItem[]; purchasedCount: number; pendingCount: number };
+export type CompletedCheckoutOrder = { id: string; providerName: string; completedAt: string; weekStartDate: string; purchasedCount: number; pendingCount: number };
 
 async function getHouseholdContext() {
   const supabase = await createClient();
@@ -144,6 +146,57 @@ export async function getCheckoutConfirmation(sessionId: string): Promise<Checko
   if (providerError || !provider) throw new Error("Unable to load your order confirmation.");
 
   return { providerName: provider.name, purchasedItemCount: checkoutSession.selected_grocery_item_ids.length };
+}
+
+export async function getCheckoutOrderDetails(sessionId: string): Promise<CheckoutOrderDetails> {
+  if (!sessionId) throw new Error("An order is required.");
+  const { supabase, householdId } = await getHouseholdContext();
+  if (!householdId) throw new Error("Your household is not available.");
+
+  const { data: checkoutSession, error: checkoutSessionError } = await supabase.from("checkout_sessions").select("grocery_list_id, selected_shopping_provider_id, basket_snapshot, completed_at, status").eq("id", sessionId).eq("household_id", householdId).maybeSingle();
+  if (checkoutSessionError || !checkoutSession || checkoutSession.status !== "completed" || !checkoutSession.selected_shopping_provider_id || !checkoutSession.completed_at) throw new Error("This completed order is not available.");
+
+  const [{ data: provider, error: providerError }, { data: groceryList, error: groceryListError }] = await Promise.all([
+    supabase.from("shopping_providers").select("name").eq("id", checkoutSession.selected_shopping_provider_id).maybeSingle(),
+    supabase.from("grocery_lists").select("weekly_meal_plan_id").eq("id", checkoutSession.grocery_list_id).maybeSingle(),
+  ]);
+  if (providerError || !provider || groceryListError || !groceryList) throw new Error("Unable to load this order.");
+
+  const { data: mealPlan, error: mealPlanError } = await supabase.from("weekly_meal_plans").select("week_start_date, status").eq("id", groceryList.weekly_meal_plan_id).maybeSingle();
+  if (mealPlanError || !mealPlan) throw new Error("Unable to load this order.");
+
+  const items = parseBasketSnapshot(checkoutSession.basket_snapshot);
+  if (items.length === 0) throw new Error("This order does not contain a basket snapshot.");
+  return { providerName: provider.name, completedAt: checkoutSession.completed_at, weekStartDate: mealPlan.week_start_date, mealPlanStatus: mealPlan.status, items, purchasedCount: items.filter((item) => item.purchased).length, pendingCount: items.filter((item) => !item.purchased).length };
+}
+
+export async function getCompletedCheckoutOrders(): Promise<CompletedCheckoutOrder[]> {
+  const { supabase, householdId } = await getHouseholdContext();
+  if (!householdId) throw new Error("Your household is not available.");
+
+  const { data: sessions, error: sessionsError } = await supabase.from("checkout_sessions").select("id, grocery_list_id, selected_shopping_provider_id, basket_snapshot, completed_at").eq("household_id", householdId).eq("status", "completed").order("completed_at", { ascending: false });
+  if (sessionsError) throw new Error("Unable to load purchase history.");
+
+  const completedSessions = (sessions ?? []).filter((session) => session.completed_at && session.selected_shopping_provider_id);
+  if (completedSessions.length === 0) return [];
+  const [providersResult, groceryListsResult] = await Promise.all([
+    supabase.from("shopping_providers").select("id, name").in("id", completedSessions.map((session) => session.selected_shopping_provider_id as string)),
+    supabase.from("grocery_lists").select("id, weekly_meal_plan_id").in("id", completedSessions.map((session) => session.grocery_list_id)),
+  ]);
+  if (providersResult.error || groceryListsResult.error) throw new Error("Unable to load purchase history.");
+  const groceryLists = groceryListsResult.data ?? [];
+  const { data: mealPlans, error: mealPlansError } = groceryLists.length > 0 ? await supabase.from("weekly_meal_plans").select("id, week_start_date").in("id", groceryLists.map((list) => list.weekly_meal_plan_id)) : { data: [], error: null };
+  if (mealPlansError) throw new Error("Unable to load purchase history.");
+
+  const providerNames = new Map((providersResult.data ?? []).map((provider) => [provider.id, provider.name]));
+  const planIdByGroceryListId = new Map(groceryLists.map((list) => [list.id, list.weekly_meal_plan_id]));
+  const weekStartByPlanId = new Map((mealPlans ?? []).map((plan) => [plan.id, plan.week_start_date]));
+  return completedSessions.flatMap((session) => {
+    const weekStartDate = weekStartByPlanId.get(planIdByGroceryListId.get(session.grocery_list_id) ?? "");
+    const providerName = providerNames.get(session.selected_shopping_provider_id as string);
+    const items = parseBasketSnapshot(session.basket_snapshot);
+    return session.completed_at && weekStartDate && providerName && items.length > 0 ? [{ id: session.id, providerName, completedAt: session.completed_at, weekStartDate, purchasedCount: items.filter((item) => item.purchased).length, pendingCount: items.filter((item) => !item.purchased).length }] : [];
+  });
 }
 
 function parseBasketSnapshot(value: unknown): BasketSnapshotItem[] {

@@ -69,6 +69,7 @@ export async function getMealPlanningData(weekStartDate: string): Promise<MealPl
       mealSlotTypes: slotTypes as MealSlotType[],
       recipes: recipes as Pick<Recipe, "id" | "name" | "servings">[],
       recipeMealCategoryIds: {},
+      completedCheckoutSessionId: null,
     };
   }
 
@@ -104,19 +105,30 @@ export async function getMealPlanningData(weekStartDate: string): Promise<MealPl
       mealSlotTypes: slotTypes as MealSlotType[],
       recipes: recipes as Pick<Recipe, "id" | "name" | "servings">[],
       recipeMealCategoryIds,
+      completedCheckoutSessionId: null,
     };
   }
 
-  const { data: items, error: itemsError } = await supabase
+  const [{ data: items, error: itemsError }, { data: groceryList, error: groceryListError }] = await Promise.all([
+    supabase
     .from("weekly_meal_plan_items")
     .select("*")
     .eq("meal_plan_id", plan.id)
     .order("meal_date")
-    .order("slot_index");
+    .order("slot_index"),
+    plan.status === "purchased"
+      ? supabase.from("grocery_lists").select("id").eq("weekly_meal_plan_id", plan.id).maybeSingle()
+      : Promise.resolve({ data: null, error: null }),
+  ]);
 
-  if (itemsError) {
+  if (itemsError || groceryListError) {
     throw new Error("Unable to load this plan's meal slots.");
   }
+
+  const { data: completedCheckoutSession, error: completedCheckoutSessionError } = groceryList
+    ? await supabase.from("checkout_sessions").select("id").eq("grocery_list_id", groceryList.id).eq("status", "completed").order("completed_at", { ascending: false }).limit(1).maybeSingle()
+    : { data: null, error: null };
+  if (completedCheckoutSessionError) throw new Error("Unable to load this plan's completed order.");
 
   const categoryNames = new Map((categories as MealCategory[]).map((category) => [category.id, category.name]));
   const slotTypeNames = new Map((slotTypes as MealSlotType[]).map((slotType) => [slotType.id, slotType.name]));
@@ -136,5 +148,6 @@ export async function getMealPlanningData(weekStartDate: string): Promise<MealPl
     mealSlotTypes: slotTypes as MealSlotType[],
     recipes: recipes as Pick<Recipe, "id" | "name" | "servings">[],
     recipeMealCategoryIds,
+    completedCheckoutSessionId: completedCheckoutSession?.id ?? null,
   };
 }

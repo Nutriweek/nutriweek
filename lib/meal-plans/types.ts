@@ -22,6 +22,7 @@ export type MealPlanningData = {
   mealSlotTypes: MealSlotType[];
   recipes: Pick<Recipe, "id" | "name" | "servings">[];
   recipeMealCategoryIds: Record<string, string[]>;
+  completedCheckoutSessionId: string | null;
 };
 
 export type MealPlanActionResult =
