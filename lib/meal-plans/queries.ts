@@ -37,7 +37,11 @@ async function getCurrentHousehold(): Promise<Household | null> {
     return null;
   }
 
-  const { data, error } = await supabase.from("households").select("*").eq("id", membership.household_id).maybeSingle();
+  const { data, error } = await supabase
+    .from("households")
+    .select("*")
+    .eq("id", membership.household_id)
+    .maybeSingle();
 
   if (error) {
     throw new Error("Unable to load your household.");
@@ -46,14 +50,26 @@ async function getCurrentHousehold(): Promise<Household | null> {
   return data as Household | null;
 }
 
-export async function getMealPlanningData(weekStartDate: string): Promise<MealPlanningData> {
+export async function getMealPlanningData(
+  weekStartDate: string,
+): Promise<MealPlanningData> {
   const supabase = await createClient();
   const household = await getCurrentHousehold();
 
-  const [{ data: categories, error: categoriesError }, { data: slotTypes, error: slotTypesError }, { data: recipes, error: recipesError }] = await Promise.all([
+  const [
+    { data: categories, error: categoriesError },
+    { data: slotTypes, error: slotTypesError },
+    { data: recipes, error: recipesError },
+  ] = await Promise.all([
     supabase.from("meal_categories").select("*").order("display_order"),
     supabase.from("meal_slot_types").select("*").order("display_order"),
-    supabase.from("recipes").select("id, name, servings").order("name").limit(100),
+    supabase
+      .from("recipes")
+      .select(
+        "id, name, servings, calories_kcal, protein_g, carbohydrates_g, fat_g, fiber_g, sugar_g, sodium_mg",
+      )
+      .order("name")
+      .limit(100),
   ]);
 
   if (categoriesError || slotTypesError || recipesError) {
@@ -67,23 +83,47 @@ export async function getMealPlanningData(weekStartDate: string): Promise<MealPl
       items: [],
       mealCategories: categories as MealCategory[],
       mealSlotTypes: slotTypes as MealSlotType[],
-      recipes: recipes as Pick<Recipe, "id" | "name" | "servings">[],
+      recipes: recipes as Pick<
+        Recipe,
+        | "id"
+        | "name"
+        | "servings"
+        | "calories_kcal"
+        | "protein_g"
+        | "carbohydrates_g"
+        | "fat_g"
+        | "fiber_g"
+        | "sugar_g"
+        | "sodium_mg"
+      >[],
       recipeMealCategoryIds: {},
       completedCheckoutSessionId: null,
     };
   }
 
   const recipeIds = (recipes ?? []).map((recipe) => recipe.id);
-  const { data: recipeMealCategories, error: recipeMealCategoriesError } = recipeIds.length > 0
-    ? await supabase.from("recipe_meal_categories").select("recipe_id, meal_category_id").in("recipe_id", recipeIds)
-    : { data: [], error: null };
+  const { data: recipeMealCategories, error: recipeMealCategoriesError } =
+    recipeIds.length > 0
+      ? await supabase
+          .from("recipe_meal_categories")
+          .select("recipe_id, meal_category_id")
+          .in("recipe_id", recipeIds)
+      : { data: [], error: null };
   if (recipeMealCategoriesError) {
     throw new Error("Unable to load recipe meal categories.");
   }
-  const recipeMealCategoryIds = (recipeMealCategories ?? []).reduce<Record<string, string[]>>((assignments, assignment) => ({
-    ...assignments,
-    [assignment.recipe_id]: [...(assignments[assignment.recipe_id] ?? []), assignment.meal_category_id],
-  }), {});
+  const recipeMealCategoryIds = (recipeMealCategories ?? []).reduce<
+    Record<string, string[]>
+  >(
+    (assignments, assignment) => ({
+      ...assignments,
+      [assignment.recipe_id]: [
+        ...(assignments[assignment.recipe_id] ?? []),
+        assignment.meal_category_id,
+      ],
+    }),
+    {},
+  );
 
   const { data: plan, error: planError } = await supabase
     .from("weekly_meal_plans")
@@ -103,21 +143,40 @@ export async function getMealPlanningData(weekStartDate: string): Promise<MealPl
       items: [],
       mealCategories: categories as MealCategory[],
       mealSlotTypes: slotTypes as MealSlotType[],
-      recipes: recipes as Pick<Recipe, "id" | "name" | "servings">[],
+      recipes: recipes as Pick<
+        Recipe,
+        | "id"
+        | "name"
+        | "servings"
+        | "calories_kcal"
+        | "protein_g"
+        | "carbohydrates_g"
+        | "fat_g"
+        | "fiber_g"
+        | "sugar_g"
+        | "sodium_mg"
+      >[],
       recipeMealCategoryIds,
       completedCheckoutSessionId: null,
     };
   }
 
-  const [{ data: items, error: itemsError }, { data: groceryList, error: groceryListError }] = await Promise.all([
+  const [
+    { data: items, error: itemsError },
+    { data: groceryList, error: groceryListError },
+  ] = await Promise.all([
     supabase
-    .from("weekly_meal_plan_items")
-    .select("*")
-    .eq("meal_plan_id", plan.id)
-    .order("meal_date")
-    .order("slot_index"),
+      .from("weekly_meal_plan_items")
+      .select("*")
+      .eq("meal_plan_id", plan.id)
+      .order("meal_date")
+      .order("slot_index"),
     plan.status === "purchased"
-      ? supabase.from("grocery_lists").select("id").eq("weekly_meal_plan_id", plan.id).maybeSingle()
+      ? supabase
+          .from("grocery_lists")
+          .select("id")
+          .eq("weekly_meal_plan_id", plan.id)
+          .maybeSingle()
       : Promise.resolve({ data: null, error: null }),
   ]);
 
@@ -125,20 +184,83 @@ export async function getMealPlanningData(weekStartDate: string): Promise<MealPl
     throw new Error("Unable to load this plan's meal slots.");
   }
 
-  const { data: completedCheckoutSession, error: completedCheckoutSessionError } = groceryList
-    ? await supabase.from("checkout_sessions").select("id").eq("grocery_list_id", groceryList.id).eq("status", "completed").order("completed_at", { ascending: false }).limit(1).maybeSingle()
+  const {
+    data: completedCheckoutSession,
+    error: completedCheckoutSessionError,
+  } = groceryList
+    ? await supabase
+        .from("checkout_sessions")
+        .select("id")
+        .eq("grocery_list_id", groceryList.id)
+        .eq("status", "completed")
+        .order("completed_at", { ascending: false })
+        .limit(1)
+        .maybeSingle()
     : { data: null, error: null };
-  if (completedCheckoutSessionError) throw new Error("Unable to load this plan's completed order.");
+  if (completedCheckoutSessionError)
+    throw new Error("Unable to load this plan's completed order.");
 
-  const categoryNames = new Map((categories as MealCategory[]).map((category) => [category.id, category.name]));
-  const slotTypeNames = new Map((slotTypes as MealSlotType[]).map((slotType) => [slotType.id, slotType.name]));
-  const recipeNames = new Map((recipes as Pick<Recipe, "id" | "name" | "servings">[]).map((recipe) => [recipe.id, recipe.name]));
-  const plannedItems = (items as WeeklyMealPlanItem[]).map<PlannedMealItem>((item) => ({
-    ...item,
-    meal_category_name: categoryNames.get(item.meal_category_id) ?? "Meal",
-    meal_slot_type_name: slotTypeNames.get(item.meal_slot_type_id) ?? "Meal slot",
-    recipe_name: item.recipe_id ? recipeNames.get(item.recipe_id) ?? null : null,
-  }));
+  const categoryNames = new Map(
+    (categories as MealCategory[]).map((category) => [
+      category.id,
+      category.name,
+    ]),
+  );
+  const slotTypeNames = new Map(
+    (slotTypes as MealSlotType[]).map((slotType) => [
+      slotType.id,
+      slotType.name,
+    ]),
+  );
+  const recipeById = new Map(
+    (
+      recipes as Pick<
+        Recipe,
+        | "id"
+        | "name"
+        | "servings"
+        | "calories_kcal"
+        | "protein_g"
+        | "carbohydrates_g"
+        | "fat_g"
+        | "fiber_g"
+        | "sugar_g"
+        | "sodium_mg"
+      >[]
+    ).map((recipe) => [recipe.id, recipe]),
+  );
+  const plannedItems = (items as WeeklyMealPlanItem[]).map<PlannedMealItem>(
+    (item) => ({
+      ...item,
+      meal_category_name: categoryNames.get(item.meal_category_id) ?? "Meal",
+      meal_slot_type_name:
+        slotTypeNames.get(item.meal_slot_type_id) ?? "Meal slot",
+      recipe_name: item.recipe_id
+        ? (recipeById.get(item.recipe_id)?.name ?? null)
+        : null,
+      calories_kcal: item.recipe_id
+        ? (recipeById.get(item.recipe_id)?.calories_kcal ?? null)
+        : null,
+      protein_g: item.recipe_id
+        ? (recipeById.get(item.recipe_id)?.protein_g ?? null)
+        : null,
+      carbohydrates_g: item.recipe_id
+        ? (recipeById.get(item.recipe_id)?.carbohydrates_g ?? null)
+        : null,
+      fat_g: item.recipe_id
+        ? (recipeById.get(item.recipe_id)?.fat_g ?? null)
+        : null,
+      fiber_g: item.recipe_id
+        ? (recipeById.get(item.recipe_id)?.fiber_g ?? null)
+        : null,
+      sugar_g: item.recipe_id
+        ? (recipeById.get(item.recipe_id)?.sugar_g ?? null)
+        : null,
+      sodium_mg: item.recipe_id
+        ? (recipeById.get(item.recipe_id)?.sodium_mg ?? null)
+        : null,
+    }),
+  );
 
   return {
     household,
@@ -146,7 +268,19 @@ export async function getMealPlanningData(weekStartDate: string): Promise<MealPl
     items: plannedItems,
     mealCategories: categories as MealCategory[],
     mealSlotTypes: slotTypes as MealSlotType[],
-    recipes: recipes as Pick<Recipe, "id" | "name" | "servings">[],
+    recipes: recipes as Pick<
+      Recipe,
+      | "id"
+      | "name"
+      | "servings"
+      | "calories_kcal"
+      | "protein_g"
+      | "carbohydrates_g"
+      | "fat_g"
+      | "fiber_g"
+      | "sugar_g"
+      | "sodium_mg"
+    >[],
     recipeMealCategoryIds,
     completedCheckoutSessionId: completedCheckoutSession?.id ?? null,
   };

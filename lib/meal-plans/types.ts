@@ -1,3 +1,4 @@
+import type { Nutrition, NutritionTotals } from "@/lib/nutrition";
 import type { Tables, TablesInsert } from "@/lib/supabase/database.types";
 
 export type Household = Tables<"households">;
@@ -8,11 +9,12 @@ export type WeeklyMealPlan = Tables<"weekly_meal_plans">;
 export type WeeklyMealPlanItem = Tables<"weekly_meal_plan_items">;
 export type WeeklyMealPlanItemInsert = TablesInsert<"weekly_meal_plan_items">;
 
-export type PlannedMealItem = WeeklyMealPlanItem & {
-  meal_category_name: string;
-  meal_slot_type_name: string;
-  recipe_name: string | null;
-};
+export type PlannedMealItem = WeeklyMealPlanItem &
+  Nutrition & {
+    meal_category_name: string;
+    meal_slot_type_name: string;
+    recipe_name: string | null;
+  };
 
 export type MealPlanningData = {
   household: Household | null;
@@ -20,11 +22,16 @@ export type MealPlanningData = {
   items: PlannedMealItem[];
   mealCategories: MealCategory[];
   mealSlotTypes: MealSlotType[];
-  recipes: Pick<Recipe, "id" | "name" | "servings">[];
+  recipes: Pick<Recipe, "id" | "name" | "servings" | keyof Nutrition>[];
   recipeMealCategoryIds: Record<string, string[]>;
   completedCheckoutSessionId: string | null;
 };
 
+export type MealPlanNutrition = {
+  dailyTotals: Record<string, NutritionTotals>;
+  weeklyTotal: NutritionTotals;
+  weeklyAverage: NutritionTotals;
+};
+
 export type MealPlanActionResult =
-  | { success: true; message: string }
-  | { success: false; message: string };
+  { success: true; message: string } | { success: false; message: string };
