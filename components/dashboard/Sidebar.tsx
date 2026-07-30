@@ -25,9 +25,13 @@ const navigationItems: NavigationItem[] = [
   { label: "Meal Plans", icon: CalendarDays, href: "/dashboard/meal-plans" },
   { label: "Pantry", icon: Package, href: "/dashboard/pantry" },
   { label: "Grocery List", icon: ShoppingCart, href: "/dashboard/grocery" },
-  { label: "Purchase History", icon: ReceiptText, href: "/dashboard/purchase-history" },
+  {
+    label: "Purchase History",
+    icon: ReceiptText,
+    href: "/dashboard/purchase-history",
+  },
   { label: "Recipes", icon: ChefHat, href: "/dashboard/recipes" },
-  { label: "Nutrition (Coming Soon)", icon: BarChart3, href: "/dashboard/nutrition" },
+  { label: "Nutrition", icon: BarChart3, href: "/dashboard/nutrition" },
   { label: "Profile", icon: UserRound, href: "/dashboard/profile" },
 ];
 
@@ -40,7 +44,10 @@ function NavigationItems({ mobile = false }: { mobile?: boolean }) {
       : "flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium";
 
     if (item.href) {
-      const isActive = item.href === "/dashboard" ? pathname === item.href : pathname === item.href || pathname.startsWith(`${item.href}/`);
+      const isActive =
+        item.href === "/dashboard"
+          ? pathname === item.href
+          : pathname === item.href || pathname.startsWith(`${item.href}/`);
       return (
         <Link
           key={item.label}
@@ -75,15 +82,24 @@ export default function Sidebar() {
   return (
     <>
       <aside className="hidden w-72 shrink-0 border-r border-white/[0.08] bg-white/[0.02] p-5 lg:flex lg:flex-col">
-        <Link href="/dashboard" className="px-3 text-xl font-semibold tracking-tight text-white">
-          Nutri<span className="bg-gradient-to-r from-emerald-400 to-cyan-400 bg-clip-text text-transparent">week</span>
+        <Link
+          href="/dashboard"
+          className="px-3 text-xl font-semibold tracking-tight text-white"
+        >
+          Nutri
+          <span className="bg-gradient-to-r from-emerald-400 to-cyan-400 bg-clip-text text-transparent">
+            week
+          </span>
         </Link>
         <nav className="mt-10 space-y-1" aria-label="Dashboard navigation">
           <NavigationItems />
         </nav>
       </aside>
 
-      <nav className="border-b border-white/[0.08] bg-[#050505]/95 px-4 py-3 backdrop-blur-xl lg:hidden" aria-label="Dashboard navigation">
+      <nav
+        className="border-b border-white/[0.08] bg-[#050505]/95 px-4 py-3 backdrop-blur-xl lg:hidden"
+        aria-label="Dashboard navigation"
+      >
         <div className="flex gap-1 overflow-x-auto pb-1">
           <NavigationItems mobile />
         </div>
