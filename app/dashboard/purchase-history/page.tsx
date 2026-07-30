@@ -1,0 +1,9 @@
+import Link from "next/link";
+
+import { getCompletedCheckoutOrders } from "@/lib/grocery/checkoutSessions";
+import { formatWeekRange } from "@/lib/meal-plans";
+
+export default async function PurchaseHistoryPage() {
+  const orders = await getCompletedCheckoutOrders();
+  return <section className="mx-auto max-w-5xl space-y-6" aria-labelledby="purchase-history-heading"><div className="rounded-3xl border border-white/[0.08] bg-white/[0.04] p-6 backdrop-blur-xl sm:p-8"><p className="text-sm font-medium uppercase tracking-widest text-emerald-400/80">Completed checkouts</p><h1 id="purchase-history-heading" className="mt-2 text-3xl font-semibold tracking-tight text-white">Purchase History</h1><p className="mt-2 text-sm text-zinc-400">Review the immutable basket snapshot for each completed order.</p></div>{orders.length ? <div className="space-y-3">{orders.map((order) => <Link key={order.id} href={`/dashboard/orders/${order.id}`} className="block rounded-2xl border border-white/[0.08] bg-white/[0.04] p-5 transition hover:border-emerald-400/40 hover:bg-emerald-500/[0.06]"><div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between"><div><h2 className="font-semibold text-white">{order.providerName}</h2><p className="mt-1 text-sm text-zinc-400">{formatWeekRange(order.weekStartDate)} · {new Intl.DateTimeFormat("en-IN", { dateStyle: "medium", timeStyle: "short" }).format(new Date(order.completedAt))}</p></div><dl className="flex gap-5 text-sm"><div><dt className="text-zinc-500">Purchased</dt><dd className="mt-1 font-semibold text-emerald-200">{order.purchasedCount}</dd></div><div><dt className="text-zinc-500">Pending</dt><dd className="mt-1 font-semibold text-amber-100">{order.pendingCount}</dd></div></dl></div></Link>)}</div> : <div className="rounded-3xl border border-dashed border-white/15 bg-white/[0.03] px-6 py-12 text-center text-sm text-zinc-400">No completed orders yet.</div>}</section>;
+}
