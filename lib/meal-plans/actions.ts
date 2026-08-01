@@ -6,7 +6,7 @@ import { createClient } from "@/lib/supabase/server";
 import { approveWeeklyPlan } from "@/lib/planning/actions";
 
 import { getUpcomingWeekStart, getWeekEnd, getWeekStart } from "./constants";
-import { addMealPlanItemSchema, createWeeklyMealPlanSchema, deleteMealPlanItemSchema, type AddMealPlanItemInput, type CreateWeeklyMealPlanInput, type DeleteMealPlanItemInput } from "./schemas";
+import { addMealPlanItemSchema, createWeeklyMealPlanSchema, deleteMealPlanItemSchema, replaceMealPlanItemSchema, type AddMealPlanItemInput, type CreateWeeklyMealPlanInput, type DeleteMealPlanItemInput, type ReplaceMealPlanItemInput } from "./schemas";
 import type { MealPlanActionResult, WeeklyMealPlanItemInsert } from "./types";
 
 async function getCurrentHouseholdId() {
@@ -238,4 +238,38 @@ export async function deleteMealPlanItem(values: DeleteMealPlanItemInput): Promi
 
   revalidatePath("/dashboard/meal-plans");
   return { success: true, message: "Meal removed." };
+}
+
+export async function replaceMealPlanItem(values: ReplaceMealPlanItemInput): Promise<MealPlanActionResult> {
+  const parsedValues = replaceMealPlanItemSchema.safeParse(values);
+  if (!parsedValues.success) return { success: false, message: "Choose a valid replacement recipe." };
+
+  const { supabase, householdId } = await getCurrentHouseholdId();
+  if (!householdId) return { success: false, message: "Your household is not available yet. Please refresh and try again." };
+
+  const { data: plan, error: planError } = await supabase.from("weekly_meal_plans").select("id, status").eq("id", parsedValues.data.meal_plan_id).eq("household_id", householdId).maybeSingle();
+  if (planError || !plan) return { success: false, message: "This weekly plan is no longer available." };
+  if (plan.status === "purchased") return { success: false, message: "This weekly plan is read-only because its groceries have already been purchased." };
+
+  const { data: mealItem, error: mealItemError } = await supabase.from("weekly_meal_plan_items").select("id, meal_category_id, recipe_id").eq("id", parsedValues.data.meal_plan_item_id).eq("meal_plan_id", plan.id).eq("household_id", householdId).maybeSingle();
+  if (mealItemError || !mealItem) return { success: false, message: "This meal is no longer available." };
+  if (mealItem.recipe_id === parsedValues.data.recipe_id) return { success: true, message: "This recipe is already selected." };
+
+  const [{ data: category }, { data: recipeCategory }] = await Promise.all([
+    supabase.from("meal_categories").select("name").eq("id", mealItem.meal_category_id).maybeSingle(),
+    supabase.from("recipe_meal_categories").select("recipe_id").eq("recipe_id", parsedValues.data.recipe_id).eq("meal_category_id", mealItem.meal_category_id).maybeSingle(),
+  ]);
+  if (!category || !recipeCategory) return { success: false, message: "Choose a recipe compatible with this meal category." };
+
+  const { error: updateError } = await supabase.from("weekly_meal_plan_items").update({ recipe_id: parsedValues.data.recipe_id }).eq("id", mealItem.id).eq("meal_plan_id", plan.id);
+  if (updateError) return { success: false, message: "We could not replace this meal. Please try again." };
+
+  if (["approved", "grocery_generated"].includes(plan.status)) {
+    const groceryResult = await approveWeeklyPlan({ meal_plan_id: plan.id });
+    if (!groceryResult.success) return { success: false, message: "Meal replaced, but we could not update its grocery basket. Please try again." };
+    revalidatePath("/dashboard/grocery");
+  }
+  revalidatePath("/dashboard/meal-plans");
+  revalidatePath("/dashboard/nutrition");
+  return { success: true, message: `Your ${category.name.toLowerCase()} meal has been replaced.` };
 }

@@ -19,6 +19,7 @@ import {
 } from "react-hook-form";
 
 import MealPreparationScreen from "@/components/meal-plans/MealPreparationScreen";
+import RecipeReplacement from "@/components/meal-plans/RecipeReplacement";
 import WeekNavigation from "@/components/meal-plans/WeekNavigation";
 import {
   DailyNutrition,
@@ -34,7 +35,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { addMealPlanItem, deleteMealPlanItem } from "@/lib/meal-plans/actions";
+import { addMealPlanItem, deleteMealPlanItem, replaceMealPlanItem } from "@/lib/meal-plans/actions";
 import {
   formatWeekRange,
   getUpcomingWeekStart,
@@ -317,6 +318,13 @@ export default function MealPlanEditor({
     setMealToDelete(null);
     if (result.success) router.refresh();
   }
+  async function replaceMeal(item: PlannedMealItem, recipeId: string) {
+    if (!plan) return false;
+    const result = await replaceMealPlanItem({ meal_plan_id: plan.id, meal_plan_item_id: item.id, recipe_id: recipeId });
+    setMessage({ type: result.success ? "success" : "error", text: result.message });
+    if (result.success) router.refresh();
+    return result.success;
+  }
 
   const mealName =
     mealToDelete?.recipe_name ??
@@ -390,6 +398,9 @@ export default function MealPlanEditor({
             groupedItems={groupedItems}
             weekStartDate={weekStartDate}
             onDelete={setMealToDelete}
+            onReplace={replaceMeal}
+            recipes={recipes}
+            recipeMealCategoryIds={recipeMealCategoryIds}
           />
           <ManualAdd
             form={form}
@@ -527,12 +538,34 @@ function PlannedMeals({
   groupedItems,
   weekStartDate,
   onDelete,
+  onReplace,
+  recipes,
+  recipeMealCategoryIds,
 }: {
   groupedItems: Record<string, PlannedMealItem[]>;
   weekStartDate: string;
   onDelete: (item: PlannedMealItem) => void;
+  onReplace: (item: PlannedMealItem, recipeId: string) => Promise<boolean>;
+  recipes: Pick<Recipe, "id" | "name" | "servings">[];
+  recipeMealCategoryIds: Record<string, string[]>;
 }) {
   const allItems = Object.values(groupedItems).flat();
+  const [editingItemId, setEditingItemId] = useState<string | null>(null);
+  const [selectedRecipeId, setSelectedRecipeId] = useState("");
+  const [isSavingReplacement, setIsSavingReplacement] = useState(false);
+
+  function beginReplacing(item: PlannedMealItem) {
+    setEditingItemId(item.id);
+    setSelectedRecipeId(item.recipe_id ?? "");
+  }
+
+  async function saveReplacement(item: PlannedMealItem) {
+    if (!selectedRecipeId) return;
+    setIsSavingReplacement(true);
+    const success = await onReplace(item, selectedRecipeId);
+    setIsSavingReplacement(false);
+    if (success) setEditingItemId(null);
+  }
   return (
     <section className="rounded-3xl border border-white/[0.08] bg-white/[0.04] p-5 sm:p-7">
       <div className="mb-6 flex items-center gap-3">
@@ -576,13 +609,13 @@ function PlannedMeals({
                       key={item.id}
                       className="relative rounded-xl border border-white/[0.08] bg-white/[0.04] transition hover:border-emerald-400/40"
                     >
-                      <Link
+                      {editingItemId === item.id ? <RecipeReplacement item={item} recipes={recipes} recipeMealCategoryIds={recipeMealCategoryIds} selectedRecipeId={selectedRecipeId} onSelectRecipe={setSelectedRecipeId} onCancel={() => setEditingItemId(null)} onSave={() => saveReplacement(item)} isSaving={isSavingReplacement} /> : <><Link
                         href={
                           item.recipe_id
                             ? `/dashboard/recipes/${item.recipe_id}?week=${weekStartDate}&mealCategory=${encodeURIComponent(item.meal_category_name)}`
                             : "#"
                         }
-                        className="block p-4 pr-12"
+                        className="block p-4 pr-28"
                       >
                         <p className="text-xs uppercase tracking-wider text-zinc-500">
                           {item.meal_category_name} · {item.meal_slot_type_name}
@@ -599,16 +632,27 @@ function PlannedMeals({
                           </p>
                         ) : null}
                       </Link>
-                      <button
+                      <div className="absolute right-3 top-3 flex items-center gap-1">
+                        <button
+                        type="button"
+                        onClick={() => beginReplacing(item)}
+                        aria-label={`Replace ${item.recipe_name ?? item.title ?? item.meal_slot_type_name}`}
+                        className="inline-flex h-9 items-center justify-center rounded-lg px-2 text-xs font-medium text-emerald-300 transition hover:bg-emerald-500/10 hover:text-emerald-100 focus:outline-none focus:ring-2 focus:ring-emerald-300/40"
+                        >
+                          Replace
+                        </button>
+                        <button
                         type="button"
                         onClick={() => onDelete(item)}
                         aria-label={`Remove ${item.recipe_name ?? item.title ?? item.meal_slot_type_name}`}
-                        className="absolute right-2 top-2 inline-flex h-9 w-9 cursor-pointer items-center justify-center rounded-lg text-zinc-500 transition hover:bg-rose-500/10 hover:text-rose-300 focus:outline-none focus:ring-2 focus:ring-rose-300/40"
+                        className="inline-flex h-9 w-9 cursor-pointer items-center justify-center rounded-lg text-zinc-500 transition hover:bg-rose-500/10 hover:text-rose-300 focus:outline-none focus:ring-2 focus:ring-rose-300/40"
                       >
                         <Trash2 className="h-4 w-4" aria-hidden="true" />
-                      </button>
+                        </button>
+                      </div>
+                    </>}
                     </article>
-                  ))}
+                    ))}
               </div>
               <DailyNutrition meals={meals} />
             </div>
