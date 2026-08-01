@@ -3,6 +3,7 @@
 import { redirect } from "next/navigation";
 
 import { completeGroceryPurchase } from "@/lib/grocery/actions";
+import { parseBasketSnapshot, type BasketSnapshotItem } from "@/lib/grocery/helpers";
 import { createClient } from "@/lib/supabase/server";
 
 type CheckoutSessionResult = { success: true; sessionId: string } | { success: false; message: string };
@@ -11,7 +12,6 @@ export type CheckoutSessionDetails = {
   selectedItems: { id: string; name: string; quantity: number; unit: string; baseUnit: string; manualAdjustmentQuantity: number }[];
 };
 export type CheckoutConfirmation = { providerName: string; purchasedItemCount: number };
-type BasketSnapshotItem = { id: string; name: string; quantity: number; manualAdjustmentQuantity: number; baseUnit: string; selectedForPurchase: boolean; purchased: boolean };
 export type CheckoutOrderDetails = { providerName: string; completedAt: string; weekStartDate: string; mealPlanStatus: string; items: BasketSnapshotItem[]; purchasedCount: number; pendingCount: number };
 export type CompletedCheckoutOrder = { id: string; providerName: string; completedAt: string; weekStartDate: string; purchasedCount: number; pendingCount: number };
 
@@ -199,11 +199,3 @@ export async function getCompletedCheckoutOrders(): Promise<CompletedCheckoutOrd
   });
 }
 
-function parseBasketSnapshot(value: unknown): BasketSnapshotItem[] {
-  if (!Array.isArray(value)) return [];
-  return value.flatMap((item) => {
-    if (!item || typeof item !== "object") return [];
-    const snapshot = item as Record<string, unknown>;
-    return typeof snapshot.id === "string" && typeof snapshot.name === "string" && typeof snapshot.quantity === "number" && typeof snapshot.manualAdjustmentQuantity === "number" && typeof snapshot.baseUnit === "string" && typeof snapshot.purchased === "boolean" ? [{ id: snapshot.id, name: snapshot.name, quantity: snapshot.quantity, manualAdjustmentQuantity: snapshot.manualAdjustmentQuantity, baseUnit: snapshot.baseUnit, selectedForPurchase: typeof snapshot.selectedForPurchase === "boolean" ? snapshot.selectedForPurchase : snapshot.purchased, purchased: snapshot.purchased }] : [];
-  });
-}
