@@ -72,7 +72,7 @@ export async function prepareWeeklyPlan(values: PrepareWeeklyPlanInput): Promise
 
   const [{ data: profile }, { data: systemRecipes }, { data: privateRecipes }, { data: categories }, { data: slotTypes }, { data: preferences }] = await Promise.all([
     supabase.from("profiles").select("diet_type, allergies, kitchen_equipment, weekly_grocery_budget, currency_code").eq("id", user.id).maybeSingle(),
-    supabase.from("recipes").select("id, name, servings, calories_kcal, protein_g, fiber_g, sugar_g, fat_g, prep_time_minutes, cook_time_minutes, estimated_cost, primary_cuisine_region_id, source_type").eq("source_type", "system").eq("visibility", "system").eq("publication_status", "published").eq("is_active", true).order("name").limit(100),
+    supabase.from("recipes").select("id, name, servings, calories_kcal, protein_g, fiber_g, sugar_g, fat_g, prep_time_minutes, cook_time_minutes, estimated_cost, primary_cuisine_region_id, source_type").eq("source_type", "system").eq("visibility", "system").eq("publication_status", "published").eq("is_active", true).order("name"),
     supabase.from("recipes").select("id, name, servings, calories_kcal, protein_g, fiber_g, sugar_g, fat_g, prep_time_minutes, cook_time_minutes, estimated_cost, primary_cuisine_region_id, source_type").eq("source_type", "user").eq("created_by", user.id).eq("visibility", "private").eq("is_active", true).order("name").limit(100),
     supabase.from("meal_categories").select("id, slug").in("slug", ["breakfast", "lunch", "dinner"]).order("display_order"),
     supabase.from("meal_slot_types").select("id, slug").eq("slug", "recipe").maybeSingle(),

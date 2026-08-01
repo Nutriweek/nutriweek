@@ -68,8 +68,7 @@ export async function getMealPlanningData(
       .select(
         "id, name, servings, calories_kcal, protein_g, carbohydrates_g, fat_g, fiber_g, sugar_g, sodium_mg",
       )
-      .order("name")
-      .limit(100),
+      .order("name"),
   ]);
 
   if (categoriesError || slotTypesError || recipesError) {
