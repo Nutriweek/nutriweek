@@ -1,6 +1,7 @@
 "use server";
 
 import { redirect } from "next/navigation";
+import { revalidatePath } from "next/cache";
 
 import { completeGroceryPurchase } from "@/lib/grocery/actions";
 import { parseBasketSnapshot, type BasketSnapshotItem } from "@/lib/grocery/helpers";
@@ -157,6 +158,8 @@ export async function placeCheckoutSessionOrder(formData: FormData) {
     const completedBasketSnapshot = basketSnapshot.map((item) => checkoutSession.selected_grocery_item_ids.includes(item.id) ? { ...item, purchased: true } : item);
     const { error: completionError } = await supabase.from("checkout_sessions").update({ status: "completed", completed_at: new Date().toISOString(), basket_snapshot: completedBasketSnapshot }).eq("id", sessionId).eq("household_id", householdId);
     if (completionError) throw new Error("Your purchase was completed, but we could not finish your checkout session.");
+    revalidatePath(`/dashboard/event-grocery/${checkoutSession.event_grocery_list_id}`);
+    revalidatePath("/dashboard/event-grocery");
     redirect(`/dashboard/grocery/order-confirmation?session=${encodeURIComponent(sessionId)}`);
   }
   if (!checkoutSession.grocery_list_id) throw new Error("Your checkout session is no longer available.");
