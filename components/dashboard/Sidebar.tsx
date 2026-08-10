@@ -4,6 +4,7 @@ import {
   BarChart3,
   CalendarDays,
   ChefHat,
+  ClipboardList,
   LayoutDashboard,
   Package,
   ReceiptText,
@@ -25,6 +26,7 @@ const navigationItems: NavigationItem[] = [
   { label: "Meal Plans", icon: CalendarDays, href: "/dashboard/meal-plans" },
   { label: "Pantry", icon: Package, href: "/dashboard/pantry" },
   { label: "Grocery List", icon: ShoppingCart, href: "/dashboard/grocery" },
+  { label: "Event Grocery Lists", icon: ClipboardList, href: "/dashboard/event-grocery" },
   {
     label: "Purchase History",
     icon: ReceiptText,

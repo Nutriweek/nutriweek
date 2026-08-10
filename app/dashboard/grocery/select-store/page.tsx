@@ -20,16 +20,25 @@ export default async function SelectStorePage({ searchParams }: SelectStorePageP
   const { session } = await searchParams;
   const supabase = await createClient();
   const [{ data: checkoutSession, error: checkoutSessionError }, providers] = await Promise.all([
-    session ? supabase.from("checkout_sessions").select("grocery_list_id, selected_grocery_item_ids").eq("id", session).maybeSingle() : Promise.resolve({ data: null, error: null }),
+    session ? supabase.from("checkout_sessions").select("grocery_list_id, event_grocery_list_id, selected_grocery_item_ids").eq("id", session).maybeSingle() : Promise.resolve({ data: null, error: null }),
     getShoppingProviders(),
   ]);
   if (checkoutSessionError || !checkoutSession) throw new Error("Your checkout session is no longer available.");
 
-  const { data: groceryList, error: groceryListError } = await supabase.from("grocery_lists").select("weekly_meal_plan_id").eq("id", checkoutSession.grocery_list_id).maybeSingle();
-  if (groceryListError || !groceryList) throw new Error("Unable to load your checkout summary.");
-
-  const { data: mealPlan, error: mealPlanError } = await supabase.from("weekly_meal_plans").select("week_start_date").eq("id", groceryList.weekly_meal_plan_id).maybeSingle();
-  if (mealPlanError || !mealPlan) throw new Error("Unable to load your checkout summary.");
+  let sourceLabel = "Meal plan week";
+  let sourceValue = "";
+  if (checkoutSession.event_grocery_list_id) {
+    const { data: eventList, error: eventListError } = await supabase.from("event_grocery_lists").select("name").eq("id", checkoutSession.event_grocery_list_id).maybeSingle();
+    if (eventListError || !eventList) throw new Error("Unable to load your checkout summary.");
+    sourceLabel = "Event grocery list";
+    sourceValue = eventList.name;
+  } else if (checkoutSession.grocery_list_id) {
+    const { data: groceryList, error: groceryListError } = await supabase.from("grocery_lists").select("weekly_meal_plan_id").eq("id", checkoutSession.grocery_list_id).maybeSingle();
+    if (groceryListError || !groceryList) throw new Error("Unable to load your checkout summary.");
+    const { data: mealPlan, error: mealPlanError } = await supabase.from("weekly_meal_plans").select("week_start_date").eq("id", groceryList.weekly_meal_plan_id).maybeSingle();
+    if (mealPlanError || !mealPlan) throw new Error("Unable to load your checkout summary.");
+    sourceValue = formatWeekRange(mealPlan.week_start_date);
+  } else throw new Error("Unable to load your checkout summary.");
 
   return <section className="mx-auto max-w-5xl space-y-6" aria-labelledby="select-store-heading">
     <div className="rounded-3xl border border-white/[0.08] bg-white/[0.04] p-6 backdrop-blur-xl sm:p-8">
@@ -39,7 +48,7 @@ export default async function SelectStorePage({ searchParams }: SelectStorePageP
     </div>
     <div className="rounded-3xl border border-emerald-400/15 bg-emerald-500/[0.06] p-5 backdrop-blur-xl sm:flex sm:items-center sm:justify-between sm:p-6">
       <div><p className="text-sm font-medium text-emerald-100">Checkout summary</p><p className="mt-1 text-sm text-zinc-300">Choose where you&apos;d like to buy your groceries.</p></div>
-      <dl className="mt-4 grid grid-cols-2 gap-3 sm:mt-0 sm:min-w-72"><div className="rounded-xl border border-white/[0.08] bg-black/10 p-3"><dt className="text-xs text-zinc-500">Selected items</dt><dd className="mt-1 text-sm font-semibold text-white">{checkoutSession.selected_grocery_item_ids.length}</dd></div><div className="rounded-xl border border-white/[0.08] bg-black/10 p-3"><dt className="text-xs text-zinc-500">Meal plan week</dt><dd className="mt-1 text-sm font-semibold text-white">{formatWeekRange(mealPlan.week_start_date)}</dd></div></dl>
+      <dl className="mt-4 grid grid-cols-2 gap-3 sm:mt-0 sm:min-w-72"><div className="rounded-xl border border-white/[0.08] bg-black/10 p-3"><dt className="text-xs text-zinc-500">Selected items</dt><dd className="mt-1 text-sm font-semibold text-white">{checkoutSession.selected_grocery_item_ids.length}</dd></div><div className="rounded-xl border border-white/[0.08] bg-black/10 p-3"><dt className="text-xs text-zinc-500">{sourceLabel}</dt><dd className="mt-1 text-sm font-semibold text-white">{sourceValue}</dd></div></dl>
     </div>
     <CheckoutStepper currentStep={1} />
 

@@ -71,6 +71,105 @@ export type Database = {
           },
         ]
       }
+      event_grocery_catalog_items: {
+        Row: {
+          created_at: string
+          display_order: number
+          id: string
+          is_active: boolean
+          name: string
+          slug: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          display_order?: number
+          id?: string
+          is_active?: boolean
+          name: string
+          slug: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          display_order?: number
+          id?: string
+          is_active?: boolean
+          name?: string
+          slug?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      event_grocery_items: {
+        Row: {
+          catalog_item_id: string
+          created_at: string
+          id: string
+          list_id: string
+          quantity: number
+          unit: string
+          updated_at: string
+        }
+        Insert: {
+          catalog_item_id: string
+          created_at?: string
+          id?: string
+          list_id: string
+          quantity: number
+          unit: string
+          updated_at?: string
+        }
+        Update: {
+          catalog_item_id?: string
+          created_at?: string
+          id?: string
+          list_id?: string
+          quantity?: number
+          unit?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "event_grocery_items_catalog_item_id_fkey"
+            columns: ["catalog_item_id"]
+            isOneToOne: false
+            referencedRelation: "event_grocery_catalog_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "event_grocery_items_list_id_fkey"
+            columns: ["list_id"]
+            isOneToOne: false
+            referencedRelation: "event_grocery_lists"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      event_grocery_lists: {
+        Row: {
+          created_at: string
+          id: string
+          name: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          name: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          name?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       cuisines: {
         Row: {
           created_at: string
@@ -136,7 +235,8 @@ export type Database = {
           basket_snapshot: Json
           completed_at: string | null
           created_at: string
-          grocery_list_id: string
+          event_grocery_list_id: string | null
+          grocery_list_id: string | null
           household_id: string
           id: string
           selected_grocery_item_ids: string[]
@@ -147,7 +247,8 @@ export type Database = {
           basket_snapshot?: Json
           completed_at?: string | null
           created_at?: string
-          grocery_list_id: string
+          event_grocery_list_id?: string | null
+          grocery_list_id?: string | null
           household_id: string
           id?: string
           selected_grocery_item_ids: string[]
@@ -158,7 +259,8 @@ export type Database = {
           basket_snapshot?: Json
           completed_at?: string | null
           created_at?: string
-          grocery_list_id?: string
+          event_grocery_list_id?: string | null
+          grocery_list_id?: string | null
           household_id?: string
           id?: string
           selected_grocery_item_ids?: string[]
@@ -166,6 +268,13 @@ export type Database = {
           status?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "checkout_sessions_event_grocery_list_id_fkey"
+            columns: ["event_grocery_list_id"]
+            isOneToOne: false
+            referencedRelation: "event_grocery_lists"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "checkout_sessions_grocery_list_id_fkey"
             columns: ["grocery_list_id"]
