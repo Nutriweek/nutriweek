@@ -10,7 +10,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Controller,
   useForm,
@@ -196,6 +196,9 @@ export default function MealPlanEditor({
       notes: "",
     },
   });
+  useEffect(() => {
+    if (plan?.id) form.setValue("meal_plan_id", plan.id);
+  }, [form, plan?.id]);
   const groupedItems = useMemo(
     () =>
       items.reduce<Record<string, PlannedMealItem[]>>(
