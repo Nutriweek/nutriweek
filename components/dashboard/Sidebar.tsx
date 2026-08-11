@@ -9,6 +9,7 @@ import {
   Package,
   ReceiptText,
   ShoppingCart,
+  Store,
   UserRound,
   type LucideIcon,
 } from "lucide-react";
@@ -27,6 +28,7 @@ const navigationItems: NavigationItem[] = [
   { label: "Pantry", icon: Package, href: "/dashboard/pantry" },
   { label: "Grocery List", icon: ShoppingCart, href: "/dashboard/grocery" },
   { label: "Event Grocery Lists", icon: ClipboardList, href: "/dashboard/event-grocery" },
+  { label: "Store Orders", icon: Store, href: "/dashboard/store-orders" },
   {
     label: "Purchase History",
     icon: ReceiptText,
