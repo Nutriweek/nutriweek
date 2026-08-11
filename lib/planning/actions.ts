@@ -9,8 +9,10 @@ import type { Json, Tables } from "@/lib/supabase/database.types";
 import { getAvailableMealSlots, getUpcomingWeekStart, getWeekEnd, getWeekStart } from "@/lib/meal-plans/constants";
 
 import { approveWeeklyPlanSchema, prepareWeeklyPlanSchema, type ApproveWeeklyPlanInput, type PrepareWeeklyPlanInput } from "./schemas";
+import type { FoodPreference } from "./food-preferences";
 import { getPreferenceScore, isIndulgentRecipe } from "./preference-scoring";
 import type { PlanningActionResult, PlanningRecipe } from "./types";
+import type { WeeklyPreference } from "./weekly-preferences";
 
 type PlannedRecipeItem = Pick<Tables<"weekly_meal_plan_items">, "id" | "recipe_id" | "servings">;
 type RecipeIngredient = Pick<Tables<"recipe_ingredients">, "recipe_id" | "ingredient_id" | "base_quantity" | "base_unit_code">;
@@ -33,6 +35,20 @@ function dateForOffset(weekStartDate: string, offset: number) {
   const date = new Date(`${weekStartDate}T00:00:00.000Z`);
   date.setUTCDate(date.getUTCDate() + offset);
   return date.toISOString().slice(0, 10);
+}
+
+function cuisineConstraintFor(preference: WeeklyPreference) {
+  if (preference === "south_indian") return "south-indian";
+  if (preference === "north_indian") return "north-indian";
+  if (preference === "mixed_indian") return "indian";
+  return null;
+}
+
+function matchesFoodPreference(foodPreference: FoodPreference, ingredientCategories: string[]) {
+  if (foodPreference === "non_vegetarian") return true;
+  if (ingredientCategories.length === 0) return false;
+  const isNonVegetarian = ingredientCategories.some((category) => ["meat", "seafood", "eggs"].includes(category));
+  return !isNonVegetarian;
 }
 
 export async function prepareWeeklyPlan(values: PrepareWeeklyPlanInput): Promise<PlanningActionResult> {
@@ -72,8 +88,8 @@ export async function prepareWeeklyPlan(values: PrepareWeeklyPlanInput): Promise
 
   const [{ data: profile }, { data: systemRecipes }, { data: privateRecipes }, { data: categories }, { data: slotTypes }, { data: preferences }] = await Promise.all([
     supabase.from("profiles").select("diet_type, allergies, kitchen_equipment, weekly_grocery_budget, currency_code").eq("id", user.id).maybeSingle(),
-    supabase.from("recipes").select("id, name, servings, calories_kcal, protein_g, fiber_g, sugar_g, fat_g, prep_time_minutes, cook_time_minutes, estimated_cost, primary_cuisine_region_id, source_type").eq("source_type", "system").eq("visibility", "system").eq("publication_status", "published").eq("is_active", true).order("name"),
-    supabase.from("recipes").select("id, name, servings, calories_kcal, protein_g, fiber_g, sugar_g, fat_g, prep_time_minutes, cook_time_minutes, estimated_cost, primary_cuisine_region_id, source_type").eq("source_type", "user").eq("created_by", user.id).eq("visibility", "private").eq("is_active", true).order("name").limit(100),
+    supabase.from("recipes").select("id, name, servings, calories_kcal, protein_g, fiber_g, sugar_g, fat_g, prep_time_minutes, cook_time_minutes, estimated_cost, primary_cuisine_id, primary_cuisine_region_id, source_type").eq("source_type", "system").eq("visibility", "system").eq("publication_status", "published").eq("is_active", true).order("name"),
+    supabase.from("recipes").select("id, name, servings, calories_kcal, protein_g, fiber_g, sugar_g, fat_g, prep_time_minutes, cook_time_minutes, estimated_cost, primary_cuisine_id, primary_cuisine_region_id, source_type").eq("source_type", "user").eq("created_by", user.id).eq("visibility", "private").eq("is_active", true).order("name").limit(100),
     supabase.from("meal_categories").select("id, slug").in("slug", ["breakfast", "lunch", "dinner"]).order("display_order"),
     supabase.from("meal_slot_types").select("id, slug").eq("slug", "recipe").maybeSingle(),
     supabase.from("household_planning_preferences").select("weekly_cooking_holiday").eq("household_id", householdId).maybeSingle(),
@@ -113,21 +129,28 @@ export async function prepareWeeklyPlan(values: PrepareWeeklyPlanInput): Promise
   const ingredientIds = [...new Set((recipeIngredients ?? []).map((item) => item.ingredient_id))];
   const tagIds = [...new Set((tagAssignments ?? []).map((item) => item.tag_id))];
   const regionIds = [...new Set(recipes.flatMap((recipe) => recipe.primary_cuisine_region_id ? [recipe.primary_cuisine_region_id] : []))];
-  const [{ data: ingredientCatalog }, { data: tags }, { data: cuisineRegions }] = await Promise.all([
-    ingredientIds.length > 0 ? supabase.from("ingredients").select("id, slug").in("id", ingredientIds) : Promise.resolve({ data: [] }),
+  const cuisineIds = [...new Set(recipes.flatMap((recipe) => recipe.primary_cuisine_id ? [recipe.primary_cuisine_id] : []))];
+  const [{ data: ingredientCatalog }, { data: tags }, { data: cuisineRegions }, { data: cuisines }] = await Promise.all([
+    ingredientIds.length > 0 ? supabase.from("ingredients").select("id, slug, ingredient_category").in("id", ingredientIds) : Promise.resolve({ data: [] }),
     tagIds.length > 0 ? supabase.from("recipe_tags").select("id, slug").in("id", tagIds) : Promise.resolve({ data: [] }),
     regionIds.length > 0 ? supabase.from("cuisine_regions").select("id, slug").in("id", regionIds) : Promise.resolve({ data: [] }),
+    cuisineIds.length > 0 ? supabase.from("cuisines").select("id, slug").in("id", cuisineIds) : Promise.resolve({ data: [] }),
   ]);
   const ingredientSlugs = new Map((ingredientCatalog ?? []).map((ingredient) => [ingredient.id, ingredient.slug]));
+  const ingredientCategories = new Map((ingredientCatalog ?? []).map((ingredient) => [ingredient.id, ingredient.ingredient_category]));
   const tagSlugs = new Map((tags ?? []).map((tag) => [tag.id, tag.slug]));
   const regionSlugs = new Map((cuisineRegions ?? []).map((region) => [region.id, region.slug]));
+  const cuisineSlugs = new Map((cuisines ?? []).map((cuisine) => [cuisine.id, cuisine.slug]));
   const recipeAllergens = new Map<string, string[]>();
   const ingredientSlugsByRecipe = new Map<string, string[]>();
+  const ingredientCategoriesByRecipe = new Map<string, string[]>();
   for (const item of recipeIngredients ?? []) {
     const allergen = allergensByIngredient.get(item.ingredient_id);
     if (allergen) recipeAllergens.set(item.recipe_id, [...(recipeAllergens.get(item.recipe_id) ?? []), allergen]);
     const ingredientSlug = ingredientSlugs.get(item.ingredient_id);
     if (ingredientSlug) ingredientSlugsByRecipe.set(item.recipe_id, [...(ingredientSlugsByRecipe.get(item.recipe_id) ?? []), ingredientSlug]);
+    const ingredientCategory = ingredientCategories.get(item.ingredient_id);
+    if (ingredientCategory) ingredientCategoriesByRecipe.set(item.recipe_id, [...(ingredientCategoriesByRecipe.get(item.recipe_id) ?? []), ingredientCategory]);
   }
   const tagSlugsByRecipe = new Map<string, string[]>();
   for (const item of tagAssignments ?? []) {
@@ -135,29 +158,47 @@ export async function prepareWeeklyPlan(values: PrepareWeeklyPlanInput): Promise
     if (tagSlug) tagSlugsByRecipe.set(item.recipe_id, [...(tagSlugsByRecipe.get(item.recipe_id) ?? []), tagSlug]);
   }
 
+  const nonVegetarianRecipeIds = new Set((recipes as PlanningRecipe[]).flatMap((recipe) =>
+    (ingredientCategoriesByRecipe.get(recipe.id) ?? []).some((category) => ["meat", "seafood", "eggs"].includes(category)) ? [recipe.id] : [],
+  ));
   const qualityByRecipe = new Map((qualityScores ?? []).map((score) => [score.recipe_id, score.score]));
   const preferenceScoreByRecipe = new Map((recipes as PlanningRecipe[]).map((recipe) => [recipe.id, getPreferenceScore(parsed.data.weekly_preference, { recipe, qualityScore: qualityByRecipe.get(recipe.id) ?? 0, ingredientSlugs: ingredientSlugsByRecipe.get(recipe.id) ?? [], tagSlugs: tagSlugsByRecipe.get(recipe.id) ?? [], cuisineRegionSlug: recipe.primary_cuisine_region_id ? regionSlugs.get(recipe.primary_cuisine_region_id) ?? null : null })]));
   const recipeIdsByMealCategory = new Map<string, Set<string>>();
   for (const assignment of mealCategoryAssignments ?? []) {
     recipeIdsByMealCategory.set(assignment.meal_category_id, new Set([...(recipeIdsByMealCategory.get(assignment.meal_category_id) ?? []), assignment.recipe_id]));
   }
+  const cuisineConstraint = cuisineConstraintFor(parsed.data.weekly_preference);
   const eligibleRecipes = (recipes as PlanningRecipe[]).filter((recipe) => {
     const diets = compatibleDiet.get(recipe.id) ?? [];
     const required = equipmentByRecipe.get(recipe.id) ?? [];
     const allergens = recipeAllergens.get(recipe.id) ?? [];
+    const cuisineMatches = cuisineConstraint === "indian"
+      ? recipe.primary_cuisine_id ? cuisineSlugs.get(recipe.primary_cuisine_id) === "indian" : false
+      : cuisineConstraint ? recipe.primary_cuisine_region_id ? regionSlugs.get(recipe.primary_cuisine_region_id) === cuisineConstraint : false : true;
     return (!profile?.diet_type || diets.length === 0 || diets.includes(profile.diet_type))
+      && cuisineMatches
+      && matchesFoodPreference(parsed.data.food_preference, ingredientCategoriesByRecipe.get(recipe.id) ?? [])
       && required.every((equipment) => profile?.kitchen_equipment.includes(equipment) ?? false)
       && !allergens.some((allergen) => profile?.allergies.map((value: string) => value.toLowerCase()).includes(allergen.toLowerCase()));
   }).sort((left, right) => {
-    const leftScore = (qualityByRecipe.get(left.id) ?? 0) + (left.source_type === "system" ? 5 : 0) + (preferenceScoreByRecipe.get(left.id) ?? 0);
-    const rightScore = (qualityByRecipe.get(right.id) ?? 0) + (right.source_type === "system" ? 5 : 0) + (preferenceScoreByRecipe.get(right.id) ?? 0);
+    const leftScore = (qualityByRecipe.get(left.id) ?? 0) + (left.source_type === "system" ? 5 : 0) + (preferenceScoreByRecipe.get(left.id) ?? 0) + (parsed.data.food_preference === "non_vegetarian" && nonVegetarianRecipeIds.has(left.id) ? 40 : 0);
+    const rightScore = (qualityByRecipe.get(right.id) ?? 0) + (right.source_type === "system" ? 5 : 0) + (preferenceScoreByRecipe.get(right.id) ?? 0) + (parsed.data.food_preference === "non_vegetarian" && nonVegetarianRecipeIds.has(right.id) ? 40 : 0);
     return rightScore - leftScore || left.name.localeCompare(right.name);
   });
 
-  if (eligibleRecipes.length === 0) return { success: false, message: "No recipes match your current diet, allergy, and kitchen equipment constraints." };
+  if (eligibleRecipes.length === 0) return { success: false, message: "No recipes match the selected food preference and cuisine along with your saved constraints. Try a different combination." };
+
+  const categoryBySlug = new Map(categories.map((category) => [category.slug, category.id]));
+  for (const slot of parsed.data.selected_meal_slots) {
+    const categoryId = categoryBySlug.get(slot.meal_category_slug);
+    const matchingRecipes = categoryId ? recipeIdsByMealCategory.get(categoryId) : null;
+    if (!matchingRecipes || !eligibleRecipes.some((recipe) => matchingRecipes.has(recipe.id))) {
+      return { success: false, message: `No eligible ${slot.meal_category_slug} recipes match the selected food preference and cuisine. Try a different combination.` };
+    }
+  }
 
   const { data: plan, error: planError } = await supabase.from("weekly_meal_plans").upsert(
-    { household_id: householdId, week_start_date: parsed.data.week_start_date, status: "draft", generation_source: "deterministic", generation_context: { weekly_preference: parsed.data.weekly_preference, selected_meal_slots: parsed.data.selected_meal_slots } },
+    { household_id: householdId, week_start_date: parsed.data.week_start_date, status: "draft", generation_source: "deterministic", generation_context: { weekly_preference: parsed.data.weekly_preference, food_preference: parsed.data.food_preference, selected_meal_slots: parsed.data.selected_meal_slots } },
     { onConflict: "household_id,week_start_date" },
   ).select("id").single();
   if (planError || !plan) return { success: false, message: "We could not prepare this weekly plan." };
@@ -166,6 +207,10 @@ export async function prepareWeeklyPlan(values: PrepareWeeklyPlanInput): Promise
   const items = [] as { household_id: string; meal_plan_id: string; meal_date: string; meal_category_id: string; meal_slot_type_id: string; recipe_id: string; servings: number | null; slot_index: number }[];
   let recipeIndex = 0;
   let cheatMealCount = 0;
+  let nonVegetarianMealCount = 0;
+  const nonVegetarianTarget = parsed.data.food_preference === "non_vegetarian"
+    ? Math.round(parsed.data.selected_meal_slots.length * 0.6)
+    : 0;
   const usedRecipeIds = new Set<string>();
   for (let day = 0; day < 6; day += 1) {
     if (preferences?.weekly_cooking_holiday === day) continue;
@@ -174,11 +219,15 @@ export async function prepareWeeklyPlan(values: PrepareWeeklyPlanInput): Promise
       if (!selectedSlotKeys.has(`${mealDate}:${category.slug}`)) continue;
       const categoryRecipeIds = recipeIdsByMealCategory.get(category.id);
       const matchedCategoryRecipes = categoryRecipeIds ? eligibleRecipes.filter((recipe) => categoryRecipeIds.has(recipe.id)) : [];
-      const categoryRecipes = matchedCategoryRecipes.length > 0 ? matchedCategoryRecipes : eligibleRecipes;
+      const categoryRecipes = matchedCategoryRecipes;
       const rotatingRecipes = [...categoryRecipes.slice(recipeIndex % categoryRecipes.length), ...categoryRecipes.slice(0, recipeIndex % categoryRecipes.length)];
-      const recipe = rotatingRecipes.find((candidate) => !usedRecipeIds.has(candidate.id) && (parsed.data.weekly_preference !== "cheat_week" || cheatMealCount < 2 || !isIndulgentRecipe({ recipe: candidate, tagSlugs: tagSlugsByRecipe.get(candidate.id) ?? [] }))) ?? rotatingRecipes[0];
+      const prefersNonVegetarian = parsed.data.food_preference === "non_vegetarian" && nonVegetarianMealCount < nonVegetarianTarget;
+      const preferredRecipes = rotatingRecipes.filter((candidate) => nonVegetarianRecipeIds.has(candidate.id) === prefersNonVegetarian);
+      const canUse = (candidate: PlanningRecipe) => !usedRecipeIds.has(candidate.id) && (parsed.data.weekly_preference !== "cheat_week" || cheatMealCount < 2 || !isIndulgentRecipe({ recipe: candidate, tagSlugs: tagSlugsByRecipe.get(candidate.id) ?? [] }));
+      const recipe = preferredRecipes.find(canUse) ?? rotatingRecipes.find(canUse) ?? preferredRecipes[0] ?? rotatingRecipes[0];
       recipeIndex += 1;
       usedRecipeIds.add(recipe.id);
+      if (nonVegetarianRecipeIds.has(recipe.id)) nonVegetarianMealCount += 1;
       if (parsed.data.weekly_preference === "cheat_week" && isIndulgentRecipe({ recipe, tagSlugs: tagSlugsByRecipe.get(recipe.id) ?? [] })) cheatMealCount += 1;
       items.push({ household_id: householdId, meal_plan_id: plan.id, meal_date: mealDate, meal_category_id: category.id, meal_slot_type_id: slotTypes.id, recipe_id: recipe.id, servings: recipe.servings, slot_index: 0 });
     }
@@ -186,7 +235,7 @@ export async function prepareWeeklyPlan(values: PrepareWeeklyPlanInput): Promise
   const { data: savedItems, error: itemsError } = await supabase.from("weekly_meal_plan_items").insert(items).select("id, recipe_id, meal_category_id");
   if (itemsError) return { success: false, message: "We could not save the prepared meal slots." };
 
-  const { data: run, error: runError } = await supabase.from("meal_plan_generation_runs").insert({ household_id: householdId, meal_plan_id: plan.id, generation_source: "deterministic", created_by: user.id, input_snapshot: { diet_type: profile?.diet_type, allergies: profile?.allergies ?? [], kitchen_equipment: profile?.kitchen_equipment ?? [], budget: profile?.weekly_grocery_budget, currency: profile?.currency_code, weekly_preference: parsed.data.weekly_preference }, output_snapshot: { recipe_ids: eligibleRecipes.map((recipe) => recipe.id), meal_slot_count: items.length } }).select("id").single();
+  const { data: run, error: runError } = await supabase.from("meal_plan_generation_runs").insert({ household_id: householdId, meal_plan_id: plan.id, generation_source: "deterministic", created_by: user.id, input_snapshot: { diet_type: profile?.diet_type, allergies: profile?.allergies ?? [], kitchen_equipment: profile?.kitchen_equipment ?? [], budget: profile?.weekly_grocery_budget, currency: profile?.currency_code, weekly_preference: parsed.data.weekly_preference, food_preference: parsed.data.food_preference }, output_snapshot: { recipe_ids: eligibleRecipes.map((recipe) => recipe.id), meal_slot_count: items.length } }).select("id").single();
   if (!runError && run) {
     const explanations = [
       { generation_run_id: run.id, explanation_code: "diet", message: profile?.diet_type ? "Matches your selected diet." : "Uses recipes from your available catalog.", metadata: {} },

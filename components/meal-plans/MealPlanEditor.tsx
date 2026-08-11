@@ -55,6 +55,7 @@ import type {
   WeeklyMealPlan,
 } from "@/lib/meal-plans/types";
 import { approveWeeklyPlan, prepareWeeklyPlan } from "@/lib/planning/actions";
+import type { FoodPreference } from "@/lib/planning/food-preferences";
 import {
   DEFAULT_WEEKLY_PREFERENCE,
   WEEKLY_PREFERENCE_VALUES,
@@ -260,6 +261,7 @@ export default function MealPlanEditor({
 
   async function generate(
     preferenceValue: WeeklyPreference,
+    foodPreference: FoodPreference,
     slots: MealSlotSelection[],
   ) {
     setMessage(null);
@@ -267,6 +269,7 @@ export default function MealPlanEditor({
     const result = await prepareWeeklyPlan({
       week_start_date: weekStartDate,
       weekly_preference: preferenceValue,
+      food_preference: foodPreference,
       selected_meal_slots: slots,
     });
     setIsCreating(false);
