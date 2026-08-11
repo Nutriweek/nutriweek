@@ -211,7 +211,7 @@ export async function prepareWeeklyPlan(values: PrepareWeeklyPlanInput): Promise
   const nonVegetarianTarget = parsed.data.food_preference === "non_vegetarian"
     ? Math.round(parsed.data.selected_meal_slots.length * 0.6)
     : 0;
-  const usedRecipeIds = new Set<string>();
+  const recipeUseCountById = new Map<string, number>();
   for (let day = 0; day < 6; day += 1) {
     if (preferences?.weekly_cooking_holiday === day) continue;
     const mealDate = dateForOffset(parsed.data.week_start_date, day);
@@ -223,10 +223,14 @@ export async function prepareWeeklyPlan(values: PrepareWeeklyPlanInput): Promise
       const rotatingRecipes = [...categoryRecipes.slice(recipeIndex % categoryRecipes.length), ...categoryRecipes.slice(0, recipeIndex % categoryRecipes.length)];
       const prefersNonVegetarian = parsed.data.food_preference === "non_vegetarian" && nonVegetarianMealCount < nonVegetarianTarget;
       const preferredRecipes = rotatingRecipes.filter((candidate) => nonVegetarianRecipeIds.has(candidate.id) === prefersNonVegetarian);
-      const canUse = (candidate: PlanningRecipe) => !usedRecipeIds.has(candidate.id) && (parsed.data.weekly_preference !== "cheat_week" || cheatMealCount < 2 || !isIndulgentRecipe({ recipe: candidate, tagSlugs: tagSlugsByRecipe.get(candidate.id) ?? [] }));
-      const recipe = preferredRecipes.find(canUse) ?? rotatingRecipes.find(canUse) ?? preferredRecipes[0] ?? rotatingRecipes[0];
+      const canUse = (candidate: PlanningRecipe) => !recipeUseCountById.has(candidate.id) && (parsed.data.weekly_preference !== "cheat_week" || cheatMealCount < 2 || !isIndulgentRecipe({ recipe: candidate, tagSlugs: tagSlugsByRecipe.get(candidate.id) ?? [] }));
+      const leastUsedRecipe = (candidates: PlanningRecipe[]) => candidates.length === 0 ? undefined : candidates.reduce((leastUsed, candidate) => {
+        if ((recipeUseCountById.get(candidate.id) ?? 0) < (recipeUseCountById.get(leastUsed.id) ?? 0)) return candidate;
+        return leastUsed;
+      });
+      const recipe = preferredRecipes.find(canUse) ?? rotatingRecipes.find(canUse) ?? leastUsedRecipe(preferredRecipes) ?? leastUsedRecipe(rotatingRecipes)!;
       recipeIndex += 1;
-      usedRecipeIds.add(recipe.id);
+      recipeUseCountById.set(recipe.id, (recipeUseCountById.get(recipe.id) ?? 0) + 1);
       if (nonVegetarianRecipeIds.has(recipe.id)) nonVegetarianMealCount += 1;
       if (parsed.data.weekly_preference === "cheat_week" && isIndulgentRecipe({ recipe, tagSlugs: tagSlugsByRecipe.get(recipe.id) ?? [] })) cheatMealCount += 1;
       items.push({ household_id: householdId, meal_plan_id: plan.id, meal_date: mealDate, meal_category_id: category.id, meal_slot_type_id: slotTypes.id, recipe_id: recipe.id, servings: recipe.servings, slot_index: 0 });
