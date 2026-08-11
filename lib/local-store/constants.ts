@@ -1,0 +1,3 @@
+export const ORDER_PROCESSING_FEE_PAISE = 10_000;
+export const ORDER_PROCESSING_FEE_CURRENCY = "INR" as const;
+export const LOCAL_STORE_MAX_DISTANCE_METERS = 5_000;

@@ -1,13 +1,12 @@
 "use server";
 
 import { redirect } from "next/navigation";
-import { revalidatePath } from "next/cache";
 
-import { completeGroceryPurchase } from "@/lib/grocery/actions";
 import { parseBasketSnapshot, type BasketSnapshotItem } from "@/lib/grocery/helpers";
 import { createClient } from "@/lib/supabase/server";
 
 type CheckoutSessionResult = { success: true; sessionId: string } | { success: false; message: string };
+export type CheckoutOrderSubmissionResult = { success: false; message: string };
 export type CheckoutSessionDetails = {
   providerName: string;
   selectedItems: { id: string; name: string; quantity: number; unit: string; baseUnit: string; manualAdjustmentQuantity: number }[];
@@ -89,8 +88,9 @@ export async function selectCheckoutSessionProvider(formData: FormData) {
   const { supabase, householdId } = await getHouseholdContext();
   if (!householdId) throw new Error("Your household is not available.");
 
-  const { data: provider, error: providerError } = await supabase.from("shopping_providers").select("id").eq("id", providerId).maybeSingle();
-  if (providerError || !provider) throw new Error("That shopping provider is no longer available.");
+  if (providerId !== "local_store") throw new Error("Only Local Store ordering is available.");
+  const { data: provider, error: providerError } = await supabase.from("shopping_providers").select("id").eq("id", providerId).eq("status", "active").maybeSingle();
+  if (providerError || !provider) throw new Error("Local Store ordering is not available.");
 
   const { data: checkoutSession, error } = await supabase.from("checkout_sessions").update({ selected_shopping_provider_id: provider.id }).eq("id", sessionId).eq("household_id", householdId).select("id").maybeSingle();
   if (error || !checkoutSession) throw new Error("We could not update your checkout session.");
@@ -133,55 +133,12 @@ export async function getCheckoutSessionDetails(sessionId: string): Promise<Chec
   return { providerName: provider.name, selectedItems };
 }
 
-export async function placeCheckoutSessionOrder(formData: FormData) {
+export async function placeCheckoutSessionOrder(formData: FormData): Promise<CheckoutOrderSubmissionResult> {
   const sessionId = formData.get("session");
-  if (typeof sessionId !== "string" || !sessionId) throw new Error("A checkout session is required.");
-
-  const { supabase, householdId } = await getHouseholdContext();
-  if (!householdId) throw new Error("Your household is not available.");
-
-  const { data: checkoutSession, error: checkoutSessionError } = await supabase.from("checkout_sessions").select("grocery_list_id, event_grocery_list_id, selected_grocery_item_ids, selected_shopping_provider_id, basket_snapshot, status").eq("id", sessionId).eq("household_id", householdId).maybeSingle();
-  console.info("[checkout place] session lookup", {
-    sessionId,
-    checkoutSession,
-    selectedShoppingProviderId: checkoutSession?.selected_shopping_provider_id,
-    status: checkoutSession?.status,
-    selectedGroceryItemIds: checkoutSession?.selected_grocery_item_ids,
-    checkoutSessionError,
-  });
-  const basketSnapshot = parseBasketSnapshot(checkoutSession?.basket_snapshot);
-  if (checkoutSessionError || !checkoutSession || checkoutSession.status === "completed" || !checkoutSession.selected_shopping_provider_id || basketSnapshot.length === 0 || checkoutSession.selected_grocery_item_ids.some((itemId: string) => !basketSnapshot.some((snapshotItem) => snapshotItem.id === itemId && snapshotItem.selectedForPurchase))) throw new Error("Your checkout session is no longer available.");
-
-  if (checkoutSession.event_grocery_list_id) {
-    const { data: provider, error: providerError } = await supabase.from("shopping_providers").select("id").eq("id", checkoutSession.selected_shopping_provider_id).maybeSingle();
-    if (providerError || !provider) throw new Error("That shopping provider is no longer available.");
-    const completedBasketSnapshot = basketSnapshot.map((item) => checkoutSession.selected_grocery_item_ids.includes(item.id) ? { ...item, purchased: true } : item);
-    const { error: completionError } = await supabase.from("checkout_sessions").update({ status: "completed", completed_at: new Date().toISOString(), basket_snapshot: completedBasketSnapshot }).eq("id", sessionId).eq("household_id", householdId);
-    if (completionError) throw new Error("Your purchase was completed, but we could not finish your checkout session.");
-    revalidatePath(`/dashboard/event-grocery/${checkoutSession.event_grocery_list_id}`);
-    revalidatePath("/dashboard/event-grocery");
-    redirect(`/dashboard/grocery/order-confirmation?session=${encodeURIComponent(sessionId)}`);
-  }
-  if (!checkoutSession.grocery_list_id) throw new Error("Your checkout session is no longer available.");
-
-  const [{ data: provider, error: providerError }, { data: groceryItems, error: groceryItemsError }, { data: groceryList, error: groceryListError }] = await Promise.all([
-    supabase.from("shopping_providers").select("id").eq("id", checkoutSession.selected_shopping_provider_id).maybeSingle(),
-    supabase.from("grocery_list_items").select("id").eq("grocery_list_id", checkoutSession.grocery_list_id).in("id", checkoutSession.selected_grocery_item_ids),
-    supabase.from("grocery_lists").select("weekly_meal_plan_id").eq("id", checkoutSession.grocery_list_id).maybeSingle(),
-  ]);
-  if (providerError || !provider || groceryItemsError || (groceryItems ?? []).length !== checkoutSession.selected_grocery_item_ids.length || groceryListError || !groceryList) throw new Error("Your selected grocery items are no longer available.");
-
-  const purchaseResult = await completeGroceryPurchase(checkoutSession.selected_grocery_item_ids);
-  if (!purchaseResult.success) throw new Error(purchaseResult.message);
-
-  const completedBasketSnapshot = basketSnapshot.map((item) => checkoutSession.selected_grocery_item_ids.includes(item.id) ? { ...item, purchased: true } : item);
-  const { error: completionError } = await supabase.from("checkout_sessions").update({ status: "completed", completed_at: new Date().toISOString(), basket_snapshot: completedBasketSnapshot }).eq("id", sessionId).eq("household_id", householdId);
-  if (completionError) throw new Error("Your purchase was completed, but we could not finish your checkout session.");
-
-  const { error: mealPlanError } = await supabase.from("weekly_meal_plans").update({ status: "purchased" }).eq("id", groceryList.weekly_meal_plan_id).eq("household_id", householdId);
-  if (mealPlanError) throw new Error("Your purchase was completed, but we could not mark the meal plan as purchased.");
-
-  redirect(`/dashboard/grocery/order-confirmation?session=${encodeURIComponent(sessionId)}`);
+  if (typeof sessionId !== "string" || !sessionId) return { success: false, message: "Your checkout session is unavailable. Please return to your grocery list and try again." };
+  // Stage 1 deliberately blocks the legacy completion route. It previously deleted
+  // grocery items before payment, fulfillment, and customer OTP confirmation.
+  return { success: false, message: "Online ordering is being prepared. Payment and local-store fulfillment will be available soon." };
 }
 
 export async function getCheckoutConfirmation(sessionId: string): Promise<CheckoutConfirmation> {
