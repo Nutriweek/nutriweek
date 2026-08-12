@@ -5,6 +5,8 @@ export type CustomerLocalStoreOrderStatus = {
   fulfillmentStatus: string;
   paymentStatus: string | null;
   refundStatus: string | null;
+  checkoutSessionId: string;
+  purchaseFinalizedAt: string | null;
   createdAt: string;
 };
 
@@ -26,9 +28,9 @@ export async function getCustomerLocalStoreOrderStatus(orderId: string): Promise
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) throw new Error("Please sign in to view this order.");
-  const { data: order, error: orderError } = await table(supabase, "local_store_orders").select("id, status, created_at").eq("id", orderId).eq("customer_user_id", user.id).maybeSingle();
+  const { data: order, error: orderError } = await table(supabase, "local_store_orders").select("id, status, created_at, checkout_session_id, purchase_finalized_at").eq("id", orderId).eq("customer_user_id", user.id).maybeSingle();
   if (orderError || !order) throw new Error("This order is not available.");
-  const orderRecord = order as { id: string; status: string; created_at: string };
+  const orderRecord = order as { id: string; status: string; created_at: string; checkout_session_id: string; purchase_finalized_at: string | null };
   const { data: payment } = await table(supabase, "order_payments").select("status").eq("local_store_order_id", orderRecord.id).order("created_at", { ascending: false }).limit(1).maybeSingle();
   const { data: refund } = await table(supabase, "order_refunds").select("status").eq("local_store_order_id", orderRecord.id).order("created_at", { ascending: false }).limit(1).maybeSingle();
   return {
@@ -36,6 +38,8 @@ export async function getCustomerLocalStoreOrderStatus(orderId: string): Promise
     fulfillmentStatus: orderRecord.status,
     paymentStatus: payment ? (payment as { status: string }).status : null,
     refundStatus: refund ? (refund as { status: string }).status : null,
+    checkoutSessionId: orderRecord.checkout_session_id,
+    purchaseFinalizedAt: orderRecord.purchase_finalized_at,
     createdAt: orderRecord.created_at,
   };
 }

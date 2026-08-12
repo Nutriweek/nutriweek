@@ -5,6 +5,7 @@ import { CheckCircle2, Clock3, MapPin, PackageCheck, TriangleAlert } from "lucid
 import { useRouter } from "next/navigation";
 
 import { acceptLocalStoreOrder } from "@/lib/local-store/actions";
+import { advanceLocalStoreFulfillment } from "@/lib/local-store/fulfillment";
 import type { StoreOrderInboxItem } from "@/lib/local-store/storeOrders";
 import { displayShoppingQuantity, roundShoppingQuantity } from "@/lib/grocery/roundShoppingQuantity";
 
@@ -21,6 +22,7 @@ export default function StoreOrderInbox({ availableOrders, assignedOrders }: Sto
   const router = useRouter();
   const [pendingOrderId, setPendingOrderId] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<{ kind: "success" | "error"; message: string } | null>(null);
+  const [deliveryCode, setDeliveryCode] = useState<{ orderId: string; otp: string; expiresAt: string } | null>(null);
   const [isPending, startTransition] = useTransition();
 
   function acceptOrder(orderId: string) {
@@ -40,6 +42,33 @@ export default function StoreOrderInbox({ availableOrders, assignedOrders }: Sto
     });
   }
 
+  function advanceOrder(orderId: string, action: "start_preparing" | "start_delivery" | "mark_delivered" | "refresh_delivery_code") {
+    if (isPending || pendingOrderId) return;
+    setPendingOrderId(orderId);
+    setFeedback(null);
+    startTransition(async () => {
+      const result = await advanceLocalStoreFulfillment(orderId, action);
+      setPendingOrderId(null);
+      if (!result.success) {
+        setFeedback({ kind: "error", message: result.message });
+        router.refresh();
+        return;
+      }
+      if (result.otp && result.expiresAt) setDeliveryCode({ orderId, otp: result.otp, expiresAt: result.expiresAt });
+      setFeedback({ kind: "success", message: result.otp ? "Delivery recorded. Give this code to the customer only at delivery." : "Order fulfillment status updated." });
+      router.refresh();
+    });
+  }
+
+  function fulfillmentButton(order: StoreOrderInboxItem) {
+    const pending = pendingOrderId === order.id;
+    if (order.fulfillmentStatus === "assigned") return <button type="button" onClick={() => advanceOrder(order.id, "start_preparing")} disabled={isPending} className="mt-4 inline-flex h-10 items-center justify-center rounded-xl bg-emerald-400 px-4 text-sm font-semibold text-emerald-950 transition hover:bg-emerald-300 disabled:cursor-not-allowed disabled:opacity-60">{pending ? "Updating…" : "Start preparing"}</button>;
+    if (order.fulfillmentStatus === "preparing") return <button type="button" onClick={() => advanceOrder(order.id, "start_delivery")} disabled={isPending} className="mt-4 inline-flex h-10 items-center justify-center rounded-xl bg-emerald-400 px-4 text-sm font-semibold text-emerald-950 transition hover:bg-emerald-300 disabled:cursor-not-allowed disabled:opacity-60">{pending ? "Updating…" : "Send out for delivery"}</button>;
+    if (order.fulfillmentStatus === "out_for_delivery") return <button type="button" onClick={() => advanceOrder(order.id, "mark_delivered")} disabled={isPending} className="mt-4 inline-flex h-10 items-center justify-center rounded-xl bg-emerald-400 px-4 text-sm font-semibold text-emerald-950 transition hover:bg-emerald-300 disabled:cursor-not-allowed disabled:opacity-60">{pending ? "Recording…" : "Mark delivered & get code"}</button>;
+    if (order.fulfillmentStatus === "delivered") return <button type="button" onClick={() => advanceOrder(order.id, "refresh_delivery_code")} disabled={isPending} className="mt-4 inline-flex h-10 items-center justify-center rounded-xl border border-white/10 bg-white/5 px-4 text-sm font-semibold text-zinc-100 transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-60">{pending ? "Creating…" : "Create replacement code"}</button>;
+    return null;
+  }
+
   return <div className="space-y-6">
     {feedback ? <div role="status" className={`flex gap-3 rounded-2xl border p-4 text-sm ${feedback.kind === "success" ? "border-emerald-400/20 bg-emerald-500/[0.08] text-emerald-100" : "border-amber-300/20 bg-amber-300/[0.08] text-amber-100"}`}>{feedback.kind === "success" ? <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-emerald-300" aria-hidden="true" /> : <TriangleAlert className="mt-0.5 h-5 w-5 shrink-0 text-amber-200" aria-hidden="true" />}{feedback.message}</div> : null}
     <section className="rounded-3xl border border-white/[0.08] bg-white/[0.04] p-5 sm:p-7" aria-labelledby="available-orders-heading">
@@ -48,7 +77,7 @@ export default function StoreOrderInbox({ availableOrders, assignedOrders }: Sto
     </section>
     <section className="rounded-3xl border border-white/[0.08] bg-white/[0.04] p-5 sm:p-7" aria-labelledby="assigned-orders-heading">
       <div className="flex items-center gap-3"><PackageCheck className="h-5 w-5 text-emerald-300" aria-hidden="true" /><div><h2 id="assigned-orders-heading" className="text-lg font-semibold text-white">Assigned to your store</h2><p className="mt-1 text-sm text-zinc-400">Customer delivery details are available only for orders assigned to this store.</p></div></div>
-      {assignedOrders.length === 0 ? <p className="mt-5 rounded-2xl border border-dashed border-white/10 p-4 text-sm text-zinc-400">No orders have been assigned to your store yet.</p> : <div className="mt-5 space-y-4">{assignedOrders.map((order) => <article key={`${order.id}-${order.storeName}`} className="rounded-2xl border border-emerald-400/20 bg-emerald-500/[0.05] p-5"><p className="text-sm font-medium text-emerald-300">{order.storeName}</p><h3 className="mt-1 text-base font-semibold text-white">Order accepted</h3><p className="mt-1 text-xs text-zinc-500">Accepted {order.acceptedAt ? new Date(order.acceptedAt).toLocaleString() : "just now"}</p><OrderItems items={order.items} />{order.deliveryAddress ? <div className="mt-4 flex gap-3 rounded-xl border border-white/[0.08] bg-black/10 p-4 text-sm text-zinc-300"><MapPin className="mt-0.5 h-5 w-5 shrink-0 text-emerald-300" aria-hidden="true" /><div><p className="font-medium text-white">{order.deliveryAddress.recipientName}</p><p className="mt-1">{order.deliveryAddress.phone}</p><p className="mt-1">{order.deliveryAddress.summary}</p></div></div> : <p className="mt-4 flex gap-2 text-sm text-amber-200"><TriangleAlert className="h-5 w-5 shrink-0" aria-hidden="true" />Delivery details are unavailable. Please contact Nutriweek support.</p>}</article>)}</div>}
+      {assignedOrders.length === 0 ? <p className="mt-5 rounded-2xl border border-dashed border-white/10 p-4 text-sm text-zinc-400">No orders have been assigned to your store yet.</p> : <div className="mt-5 space-y-4">{assignedOrders.map((order) => <article key={`${order.id}-${order.storeName}`} className="rounded-2xl border border-emerald-400/20 bg-emerald-500/[0.05] p-5"><p className="text-sm font-medium text-emerald-300">{order.storeName}</p><h3 className="mt-1 text-base font-semibold text-white">{order.fulfillmentStatus.replaceAll("_", " ")}</h3><p className="mt-1 text-xs text-zinc-500">Accepted {order.acceptedAt ? new Date(order.acceptedAt).toLocaleString() : "just now"}</p><OrderItems items={order.items} />{order.deliveryAddress ? <div className="mt-4 flex gap-3 rounded-xl border border-white/[0.08] bg-black/10 p-4 text-sm text-zinc-300"><MapPin className="mt-0.5 h-5 w-5 shrink-0 text-emerald-300" aria-hidden="true" /><div><p className="font-medium text-white">{order.deliveryAddress.recipientName}</p><p className="mt-1">{order.deliveryAddress.phone}</p><p className="mt-1">{order.deliveryAddress.summary}</p></div></div> : <p className="mt-4 flex gap-2 text-sm text-amber-200"><TriangleAlert className="h-5 w-5 shrink-0" aria-hidden="true" />Delivery details are unavailable. Please contact Nutriweek support.</p>}{fulfillmentButton(order)}{deliveryCode?.orderId === order.id ? <div className="mt-4 rounded-xl border border-emerald-400/20 bg-black/20 p-4"><p className="text-xs font-medium uppercase tracking-widest text-emerald-300">Delivery code — share only at handoff</p><p className="mt-2 text-3xl font-semibold tracking-[0.3em] text-white">{deliveryCode.otp}</p><p className="mt-2 text-xs text-zinc-400">Expires {new Date(deliveryCode.expiresAt).toLocaleTimeString()}</p></div> : null}</article>)}</div>}
     </section>
   </div>;
 }
