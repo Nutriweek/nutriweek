@@ -25,6 +25,7 @@ export type MealPlanningData = {
   recipes: Pick<Recipe, "id" | "name" | "servings" | keyof Nutrition>[];
   recipeMealCategoryIds: Record<string, string[]>;
   completedCheckoutSessionId: string | null;
+  activeLocalStoreOrder: { id: string; fulfillmentStatus: string } | null;
 };
 
 export type MealPlanNutrition = {

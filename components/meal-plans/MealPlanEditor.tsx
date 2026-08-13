@@ -72,6 +72,7 @@ type Props = {
   recipes: Pick<Recipe, "id" | "name" | "servings">[];
   recipeMealCategoryIds: Record<string, string[]>;
   completedCheckoutSessionId: string | null;
+  activeLocalStoreOrder: { id: string; fulfillmentStatus: string } | null;
 };
 const inputClass =
   "w-full rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-white placeholder:text-zinc-500 outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-400/20";
@@ -156,6 +157,15 @@ function WeekHeader({ weekStartDate }: { weekStartDate: string }) {
   );
 }
 
+function localStoreOrderLabel(status: string) {
+  if (status === "awaiting_payment") return "Payment pending";
+  if (status === "offers_open") return "Finding a nearby local store";
+  if (status === "assigned") return "A local store accepted your order";
+  if (status === "preparing") return "Your local store is preparing the order";
+  if (status === "out_for_delivery") return "Your order is out for delivery";
+  return "Your local-store order is in progress";
+}
+
 export default function MealPlanEditor({
   weekStartDate,
   availableMealSlots,
@@ -165,6 +175,7 @@ export default function MealPlanEditor({
   recipes,
   recipeMealCategoryIds,
   completedCheckoutSessionId,
+  activeLocalStoreOrder,
 }: Props) {
   const router = useRouter();
   const [isPreparing, setIsPreparing] = useState(!plan);
@@ -213,6 +224,7 @@ export default function MealPlanEditor({
   const categoryLabels = Object.fromEntries(
     mealCategories.map((category) => [category.slug, category.name]),
   );
+  const canPlanNextWeek = weekStartDate === getWeekStart();
 
   if (plan?.status === "purchased")
     return (
@@ -247,12 +259,14 @@ export default function MealPlanEditor({
                 Order unavailable
               </span>
             )}
-            <Link
-              href={`/dashboard/meal-plans?week=${getUpcomingWeekStart()}`}
-              className="inline-flex h-11 items-center justify-center rounded-xl bg-emerald-400 px-4 text-sm font-semibold text-emerald-950 transition hover:bg-emerald-300"
-            >
-              Plan Next Week
-            </Link>
+            {canPlanNextWeek ? (
+              <Link
+                href={`/dashboard/meal-plans?week=${getUpcomingWeekStart()}`}
+                className="inline-flex h-11 items-center justify-center rounded-xl bg-emerald-400 px-4 text-sm font-semibold text-emerald-950 transition hover:bg-emerald-300"
+              >
+                Plan Next Week
+              </Link>
+            ) : null}
           </div>
         </section>
         <PurchasedPlanMeals
@@ -261,6 +275,10 @@ export default function MealPlanEditor({
         />
       </div>
     );
+
+  const activeOrderLabel = activeLocalStoreOrder
+    ? localStoreOrderLabel(activeLocalStoreOrder.fulfillmentStatus)
+    : null;
 
   async function generate(
     preferenceValue: WeeklyPreference,
@@ -350,6 +368,16 @@ export default function MealPlanEditor({
   return (
     <div className="space-y-6">
       <WeekHeader weekStartDate={weekStartDate} />
+      {activeLocalStoreOrder && activeOrderLabel ? (
+        <section className="rounded-3xl border border-emerald-400/20 bg-emerald-500/[0.08] p-5 sm:flex sm:items-center sm:justify-between sm:p-6">
+          <div>
+            <p className="text-sm font-medium uppercase tracking-widest text-emerald-300/80">Local Store order</p>
+            <h2 className="mt-2 text-lg font-semibold text-white">{activeOrderLabel}</h2>
+            <p className="mt-1 text-sm text-emerald-100/75">View the current order status and delivery details.</p>
+          </div>
+          <Link href={`/dashboard/grocery/order-processing?order=${encodeURIComponent(activeLocalStoreOrder.id)}`} className="mt-4 inline-flex h-11 items-center justify-center rounded-xl border border-emerald-300/40 bg-emerald-500/10 px-4 text-sm font-semibold text-emerald-100 transition hover:bg-emerald-500/20 sm:mt-0">View Order Details</Link>
+        </section>
+      ) : null}
       {plan ? <WeeklyNutritionSummary meals={items} /> : null}
       {isPreparing ? (
         <MealPreparationScreen

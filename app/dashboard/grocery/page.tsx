@@ -8,6 +8,7 @@ import { formatWeekRange, getUpcomingWeekStart, getWeekStart } from "@/lib/meal-
 import { approveWeeklyPlan } from "@/lib/planning/actions";
 import { createClient } from "@/lib/supabase/server";
 import { displayShoppingQuantity, roundShoppingQuantity } from "@/lib/grocery/roundShoppingQuantity";
+import { getCustomerActiveLocalStoreOrder } from "@/lib/local-store/queries";
 
 type GroceryItem = {
   id: string;
@@ -103,6 +104,7 @@ export default async function GroceryPage({ searchParams }: GroceryPageProps) {
   }
 
   const isPurchasedPlan = selectedPlan.status === "purchased";
+  const activeLocalStoreOrder = await getCustomerActiveLocalStoreOrder(groceryList.id);
   const [{ data: plan, error: planError }, { data: items, error: itemsError }, { count: mealCount, error: mealCountError }, { data: pantryItems, error: pantryItemsError }, { data: completedCheckoutSession, error: completedCheckoutSessionError }] = await Promise.all([
     supabase.from("weekly_meal_plans").select("week_start_date").eq("id", groceryList.weekly_meal_plan_id).maybeSingle(),
     supabase.from("grocery_list_items").select("id, ingredient_id, custom_name, effective_quantity_base, manual_adjustment_quantity_base, base_unit_code, is_removed").eq("grocery_list_id", groceryList.id).eq("is_removed", false).order("created_at"),
@@ -204,9 +206,19 @@ export default async function GroceryPage({ searchParams }: GroceryPageProps) {
       <div><p className="text-sm font-medium uppercase tracking-widest text-emerald-400/80">{isPurchasedPlan ? "Purchased meal plan" : "Approved meal plan"}</p><h1 id="grocery-heading" className="mt-2 text-3xl font-semibold tracking-tight text-white">Grocery basket</h1><p className="mt-2 text-sm text-zinc-400">Ingredients needed for the week starting {weekLabel}, adjusted for your pantry.</p><div className="mt-4">{weekSelector}</div></div>
       <dl className="grid grid-cols-3 gap-3 text-left sm:min-w-[28rem]"><SummaryItem label="Week" value={weekRange} /><SummaryItem label="Meals planned" value={mealCount === null ? "—" : String(mealCount)} /><SummaryItem label="Shopping items" value={String(basketItemCount)} /></dl>
     </div>
+    {activeLocalStoreOrder ? <section className="rounded-3xl border border-emerald-400/20 bg-emerald-500/[0.08] p-5 sm:flex sm:items-center sm:justify-between sm:p-6"><div><p className="text-sm font-medium uppercase tracking-widest text-emerald-300/80">Local Store order</p><h2 className="mt-2 text-lg font-semibold text-white">{localStoreOrderLabel(activeLocalStoreOrder.fulfillmentStatus)}</h2><p className="mt-1 text-sm text-emerald-100/75">View the current order status and delivery details.</p></div><Link href={`/dashboard/grocery/order-processing?order=${encodeURIComponent(activeLocalStoreOrder.id)}`} className="mt-4 inline-flex h-11 items-center justify-center rounded-xl border border-emerald-300/40 bg-emerald-500/10 px-4 text-sm font-semibold text-emerald-100 transition hover:bg-emerald-500/20 sm:mt-0">View Order Details</Link></section> : null}
     <PantrySummary items={pantrySummaryItems} />
-    {isPurchasedPlan && historicalDisplayItems.length > 0 ? <HistoricalGroceryBasket items={historicalDisplayItems} /> : liveBasketItems.length === 0 ? <div className="rounded-3xl border border-white/[0.08] bg-white/[0.04] p-5 sm:p-7"><p className="rounded-xl border border-dashed border-white/10 px-4 py-8 text-center text-sm text-zinc-500">This approved week does not need any additional grocery items.</p></div> : <GroceryBasket basketKey={`${groceryList.id}:${groceryList.updated_at}`} groceryListId={groceryList.id} items={liveBasketItems} pantryItemCount={pantrySummaryItems.length} />}
+    {isPurchasedPlan && historicalDisplayItems.length > 0 ? <HistoricalGroceryBasket items={historicalDisplayItems} /> : liveBasketItems.length === 0 ? <div className="rounded-3xl border border-white/[0.08] bg-white/[0.04] p-5 sm:p-7"><p className="rounded-xl border border-dashed border-white/10 px-4 py-8 text-center text-sm text-zinc-500">This approved week does not need any additional grocery items.</p></div> : <GroceryBasket basketKey={`${groceryList.id}:${groceryList.updated_at}`} groceryListId={groceryList.id} items={liveBasketItems} pantryItemCount={pantrySummaryItems.length} checkoutEnabled={!activeLocalStoreOrder} />}
   </section>;
+}
+
+function localStoreOrderLabel(status: string) {
+  if (status === "awaiting_payment") return "Payment pending";
+  if (status === "offers_open") return "Finding a nearby local store";
+  if (status === "assigned") return "A local store accepted your order";
+  if (status === "preparing") return "Your local store is preparing the order";
+  if (status === "out_for_delivery") return "Your order is out for delivery";
+  return "Your local-store order is in progress";
 }
 
 function SummaryItem({ label, value }: { label: string; value: string }) {

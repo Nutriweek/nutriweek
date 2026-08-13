@@ -1,48 +1,58 @@
 "use server";
 
-import { createHmac, randomInt } from "node:crypto";
+import { randomInt } from "node:crypto";
 
+import { hashDeliveryOtp } from "./otp";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
+import { getCustomerLocalStoreOrderStatus, type CustomerLocalStoreOrderStatus } from "./queries";
 
-type DeliveryConfirmationResult = { success: true; checkoutSessionId: string } | { success: false; message: string };
+type CustomerDeliveryOtpResult = { success: true; state: "generated" | "existing" | "expired"; otp?: string; expiresAt: string | null } | { success: false; message: string };
 
-function hashOtp(otp: string) {
-  const secret = process.env.DELIVERY_OTP_SECRET;
-  if (!secret) throw new Error("DELIVERY_OTP_SECRET is required for delivery confirmation.");
-  return createHmac("sha256", secret).update(otp).digest("hex");
-}
-
-/** Internal-only delivery operation. Send the returned OTP through a future notification channel. */
-export async function createDeliveryConfirmationOtp(localStoreOrderId: string) {
-  const otp = randomInt(100_000, 1_000_000).toString();
-  const expiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString();
-  const admin = createAdminClient();
-  const { error } = await admin.rpc("create_delivery_confirmation", {
-    p_order_id: localStoreOrderId,
-    p_otp_hash: hashOtp(otp),
-    p_expires_at: expiresAt,
-  });
-  if (error) throw new Error("Unable to create delivery confirmation.");
-  return { otp, expiresAt };
-}
-
-/** Customer-facing server action foundation; it is not wired to UI in Stage 1. */
-export async function confirmLocalStoreDelivery(localStoreOrderId: string, otp: string): Promise<DeliveryConfirmationResult> {
-  if (!/^\d{6}$/.test(otp)) return { success: false, message: "Enter the six-digit delivery code." };
+/** Customer-authorized OTP generation. The raw code is returned only for an approved customer delivery channel. */
+export async function createCustomerDeliveryOtp(localStoreOrderId: string): Promise<CustomerDeliveryOtpResult> {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { success: false, message: "Please sign in." };
+  const { data: order, error: orderError } = await supabase.from("local_store_orders").select("id, status").eq("id", localStoreOrderId).eq("customer_user_id", user.id).maybeSingle();
+  if (orderError || !order) return { success: false, message: "This order is not available." };
+  if (order.status !== "out_for_delivery") return { success: false, message: "A delivery code is available only while your order is out for delivery." };
   const admin = createAdminClient();
-  const { data: order, error: orderError } = await admin.from("local_store_orders").select("checkout_session_id, customer_user_id").eq("id", localStoreOrderId).maybeSingle();
-  if (orderError || !order || order.customer_user_id !== user.id) return { success: false, message: "This order is not available." };
-  const { data: verified, error: verificationError } = await admin.rpc("verify_delivery_confirmation", {
+  const { data: confirmation, error: confirmationError } = await admin.from("delivery_confirmations").select("expires_at, verified_at").eq("local_store_order_id", localStoreOrderId).maybeSingle();
+  if (confirmationError) return { success: false, message: confirmationError.message || "Unable to check your delivery code." };
+  if (confirmation?.verified_at) return { success: false, message: "This delivery has already been confirmed." };
+  if (confirmation?.expires_at && new Date(confirmation.expires_at).getTime() > Date.now()) return { success: true, state: "existing", expiresAt: confirmation.expires_at };
+  if (confirmation?.expires_at) return { success: true, state: "expired", expiresAt: confirmation.expires_at };
+  const otp = randomInt(100_000, 1_000_000).toString();
+  const expiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString();
+  const { error } = await admin.rpc("create_customer_delivery_confirmation", {
     p_order_id: localStoreOrderId,
     p_customer_user_id: user.id,
-    p_otp_hash: hashOtp(otp),
+    p_otp_hash: hashDeliveryOtp(otp),
+    p_expires_at: expiresAt,
   });
-  if (verificationError || !verified) return { success: false, message: "That delivery code is invalid or has expired." };
-  const { error: finalizeError } = await admin.rpc("finalize_local_store_order", { p_order_id: localStoreOrderId });
-  if (finalizeError) return { success: false, message: "Receipt was confirmed, but purchase finalization needs support." };
-  return { success: true, checkoutSessionId: order.checkout_session_id as string };
+  if (error) return { success: false, message: error.message || "Your delivery code is not available yet." };
+  return { success: true, state: "generated", otp, expiresAt };
+}
+
+export async function replaceExpiredCustomerDeliveryOtp(localStoreOrderId: string): Promise<CustomerDeliveryOtpResult> {
+  const current = await createCustomerDeliveryOtp(localStoreOrderId);
+  if (!current.success || current.state !== "expired") return current;
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { success: false, message: "Please sign in." };
+  const otp = randomInt(100_000, 1_000_000).toString();
+  const expiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString();
+  const { error } = await createAdminClient().rpc("create_customer_delivery_confirmation", {
+    p_order_id: localStoreOrderId,
+    p_customer_user_id: user.id,
+    p_otp_hash: hashDeliveryOtp(otp),
+    p_expires_at: expiresAt,
+  });
+  if (error) return { success: false, message: error.message || "Unable to generate a new delivery code." };
+  return { success: true, state: "generated", otp, expiresAt };
+}
+
+export async function getCustomerLocalStoreOrderStatusForPolling(orderId: string): Promise<CustomerLocalStoreOrderStatus> {
+  return getCustomerLocalStoreOrderStatus(orderId);
 }

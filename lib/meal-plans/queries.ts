@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
+import { getCustomerActiveLocalStoreOrder } from "@/lib/local-store/queries";
 
 import type {
   Household,
@@ -97,6 +98,7 @@ export async function getMealPlanningData(
       >[],
       recipeMealCategoryIds: {},
       completedCheckoutSessionId: null,
+      activeLocalStoreOrder: null,
     };
   }
 
@@ -157,6 +159,7 @@ export async function getMealPlanningData(
       >[],
       recipeMealCategoryIds,
       completedCheckoutSessionId: null,
+      activeLocalStoreOrder: null,
     };
   }
 
@@ -170,13 +173,11 @@ export async function getMealPlanningData(
       .eq("meal_plan_id", plan.id)
       .order("meal_date")
       .order("slot_index"),
-    plan.status === "purchased"
-      ? supabase
-          .from("grocery_lists")
-          .select("id")
-          .eq("weekly_meal_plan_id", plan.id)
-          .maybeSingle()
-      : Promise.resolve({ data: null, error: null }),
+    supabase
+      .from("grocery_lists")
+      .select("id")
+      .eq("weekly_meal_plan_id", plan.id)
+      .maybeSingle(),
   ]);
 
   if (itemsError || groceryListError) {
@@ -198,6 +199,9 @@ export async function getMealPlanningData(
     : { data: null, error: null };
   if (completedCheckoutSessionError)
     throw new Error("Unable to load this plan's completed order.");
+  const activeLocalStoreOrder = groceryList
+    ? await getCustomerActiveLocalStoreOrder(groceryList.id)
+    : null;
 
   const categoryNames = new Map(
     (categories as MealCategory[]).map((category) => [
@@ -282,5 +286,6 @@ export async function getMealPlanningData(
     >[],
     recipeMealCategoryIds,
     completedCheckoutSessionId: completedCheckoutSession?.id ?? null,
+    activeLocalStoreOrder,
   };
 }
