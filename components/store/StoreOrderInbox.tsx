@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useTransition } from "react";
-import { CheckCircle2, Clock3, MapPin, PackageCheck, TriangleAlert } from "lucide-react";
+import { useEffect, useRef, useState, useTransition } from "react";
+import { BellRing, CheckCircle2, Clock3, MapPin, PackageCheck, TriangleAlert } from "lucide-react";
 import { useRouter } from "next/navigation";
 
 import { acceptLocalStoreOrder } from "@/lib/local-store/actions";
@@ -24,6 +24,24 @@ export default function StoreOrderInbox({ availableOrders, assignedOrders }: Sto
   const [feedback, setFeedback] = useState<{ kind: "success" | "error"; message: string } | null>(null);
   const [deliveryOtp, setDeliveryOtp] = useState<Record<string, string>>({});
   const [isPending, startTransition] = useTransition();
+  const knownAvailableOrderIds = useRef(new Set(availableOrders.map((order) => order.id)));
+  const [newOrderIds, setNewOrderIds] = useState<Set<string>>(() => new Set());
+
+  useEffect(() => {
+    const timer = window.setInterval(() => router.refresh(), 2500);
+    return () => window.clearInterval(timer);
+  }, [router]);
+
+  useEffect(() => {
+    const availableOrderIds = new Set(availableOrders.map((order) => order.id));
+    const arrivingOrderIds = availableOrders.filter((order) => !knownAvailableOrderIds.current.has(order.id)).map((order) => order.id);
+    arrivingOrderIds.forEach((orderId) => knownAvailableOrderIds.current.add(orderId));
+    const updateNotification = window.setTimeout(() => {
+      setNewOrderIds((current) => new Set([...current].filter((orderId) => availableOrderIds.has(orderId)).concat(arrivingOrderIds)));
+    }, 0);
+
+    return () => window.clearTimeout(updateNotification);
+  }, [availableOrders]);
 
   function acceptOrder(orderId: string) {
     if (isPending || pendingOrderId) return;
@@ -82,6 +100,7 @@ export default function StoreOrderInbox({ availableOrders, assignedOrders }: Sto
 
   return <div className="space-y-6">
     {feedback ? <div role="status" className={`flex gap-3 rounded-2xl border p-4 text-sm ${feedback.kind === "success" ? "border-emerald-400/20 bg-emerald-500/[0.08] text-emerald-100" : "border-amber-300/20 bg-amber-300/[0.08] text-amber-100"}`}>{feedback.kind === "success" ? <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-emerald-300" aria-hidden="true" /> : <TriangleAlert className="mt-0.5 h-5 w-5 shrink-0 text-amber-200" aria-hidden="true" />}{feedback.message}</div> : null}
+    {newOrderIds.size > 0 ? <div role="status" className="flex gap-3 rounded-2xl border border-emerald-400/30 bg-emerald-500/[0.12] p-4 text-emerald-50"><BellRing className="mt-0.5 h-5 w-5 shrink-0 text-emerald-300" aria-hidden="true" /><div><p className="font-semibold">New Order Available</p><p className="mt-1 text-sm text-emerald-100/80">{newOrderIds.size === 1 ? "A new grocery order is waiting for your store." : `${newOrderIds.size} new grocery orders are waiting for your store.`}</p></div></div> : null}
     <section className="rounded-3xl border border-white/[0.08] bg-white/[0.04] p-5 sm:p-7" aria-labelledby="available-orders-heading">
       <div className="flex items-center gap-3"><Clock3 className="h-5 w-5 text-emerald-300" aria-hidden="true" /><div><h2 id="available-orders-heading" className="text-lg font-semibold text-white">Available orders</h2><p className="mt-1 text-sm text-zinc-400">Accepting an order is final. The first eligible store to accept receives it.</p></div></div>
       {availableOrders.length === 0 ? <p className="mt-5 rounded-2xl border border-dashed border-white/10 p-4 text-sm text-zinc-400">There are no orders available for your store right now.</p> : <div className="mt-5 space-y-4">{availableOrders.map((order) => <article key={`${order.id}-${order.storeName}`} className="rounded-2xl border border-white/[0.08] bg-black/10 p-5"><div className="flex flex-wrap items-start justify-between gap-3"><div><p className="text-sm font-medium text-emerald-300">{order.storeName}</p><h3 className="mt-1 text-base font-semibold text-white">Grocery order</h3><p className="mt-1 text-xs text-zinc-500">Available until {new Date(order.offerExpiresAt).toLocaleString()}</p></div><button type="button" onClick={() => acceptOrder(order.id)} disabled={isPending} className="inline-flex h-10 items-center justify-center rounded-xl bg-emerald-400 px-4 text-sm font-semibold text-emerald-950 transition hover:bg-emerald-300 disabled:cursor-not-allowed disabled:opacity-60">{pendingOrderId === order.id ? "Accepting…" : "Accept order"}</button></div><OrderItems items={order.items} /><p className="mt-4 text-xs text-zinc-500">Delivery address and customer contact details are shown only after the order is accepted.</p></article>)}</div>}
